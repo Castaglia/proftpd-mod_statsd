@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>ProFTPD module mod_statsd</title>
+</head>
+
+<body bgcolor=white>
+
+<hr>
+<center>
+<h2><b>ProFTPD module <code>mod_statsd</code></b></h2>
+</center>
+<hr><br>
+
+<p>
+The <code>mod_statsd</code> module ...
+
+<p>
+This module is contained in the <code>mod_statsd</code> files for
+ProFTPD 1.3.<i>x</i>, and is not compiled by default.  Installation
+instructions are discussed <a href="#Installation">here</a>.  More examples
+of <code>mod_statsd</code> usage can be found <a href="#Usage">here</a>.
+
+<p>
+The most current version of <code>mod_statsd</code> can be found at:
+<pre>
+  <a href="https://github.com/Castaglia/proftpd-mod_statsd">https://github.com/Castaglia/proftpd-mod_statsd</a>
+</pre>
+
+<h2>Author</h2>
+<p>
+Please contact TJ Saunders &lt;tj <i>at</i> castaglia.org&gt; with any
+questions, concerns, or suggestions regarding this module.
+
+<h2>Directives</h2>
+<ul>
+  <li><a href="#StatsdEngine">StatsdEngine</a>
+  <li><a href="#StatsdServer">StatsdServer</a>
+</ul>
+
+<hr>
+<h3><a name="StatsdEngine">StatsdEngine</a></h3>
+<strong>Syntax:</strong> StatsdEngine <em>on|off</em><br>
+<strong>Default:</strong> <em>off</em><br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
+<strong>Module:</strong> mod_statsd<br>
+<strong>Compatibility:</strong> 1.3.6rc1 and later
+
+<p>
+The <code>StatsdEngine</code> directive enables or disables the emitting of
+metrics to the configured <code>statsd</code> server.
+
+<hr>
+<h3><a name="StatsdServer">StatsdServer</a></h3>
+<strong>Syntax:</strong> StatsdServer <em>address[:port]</em><br>
+<strong>Default:</strong> None<br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
+<strong>Module:</strong> mod_statsd<br>
+<strong>Compatibility:</strong> 1.3.6rc1 and later
+
+<p>
+The <code>TarOptions</code> directive is used to configure various optional
+behavior of <code>mod_tar</code>, usually pertaining to how the
+<code>.tar</code> files are constructed.
+
+<p>
+Example:
+<pre>
+  TarOptions FollowSymlinks
+</pre>
+
+<p>
+<hr>
+<h2><a name="Installation">Installation</a></h2>
+To install <code>mod_statsd</code>, copy the <code>mod_statsd</code> files into:
+<pre>
+  <i>proftpd-dir</i>/contrib/
+</pre>
+after unpacking the latest proftpd-1.3.<i>x</i> source code.  For including
+<code>mod_statsd</code> as a staticly linked module:
+<pre>
+  $ ./configure --with-modules=mod_statsd
+</pre>
+To build <code>mod_statsd</code> as a DSO module:
+<pre>
+  $ ./configure --enable-dso --with-shared=mod_statsd
+</pre>
+Then follow the usual steps:
+<pre>
+  $ make
+  # make install
+</pre>
+
+<p>
+<hr>
+<h2><a name="Usage">Usage</a></h2>
+
+<p>
+The <code>mod_statsd</code> module works by ...
+
+<p>
+Example configuration:
+<pre>
+  &lt;IfModule mod_statsd.c&gt;
+    StatsdEngine on
+    StatsdServer 127.0.0.1:8125
+  &lt;/IfModule&gt;
+</pre>
+
+<p>
+<b>Logging</b><br>
+The <code>mod_statsd</code> module supports <a href="http://www.proftpd.org/docs/howto/Tracing.html">trace logging</a>, via the module-specific log channels:
+<ul>
+  <li>statsd
+</ul>
+Thus for trace logging, to aid in debugging, you would use the following in
+your <code>proftpd.conf</code>:
+<pre>
+  TraceLog /path/to/ftpd/trace.log
+  Trace statsd:20
+</pre>
+This trace logging can generate large files; it is intended for debugging use
+only, and should be removed from any production configuration.
+
+<p>
+<hr>
+<font size=2><b><i>
+&copy; Copyright 2017 TJ Saunders<br>
+ All Rights Reserved<br>
+</i></b></font>
+<hr>
+
+</body>
+</html>
