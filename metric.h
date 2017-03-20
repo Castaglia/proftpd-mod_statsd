@@ -28,11 +28,14 @@
 #include "mod_statsd.h"
 #include "statsd.h"
 
-int statsd_metric_counter(struct statsd *statsd, const char *metric_name,
-  int32_t incr);
-int statsd_metric_timer(struct statsd *statsd, const char *metric_name,
-  uint32_t ms);
-int statsd_metric_gauge(struct statsd *statsd, const char *metric_name,
-  int32_t val, int flags);
+int statsd_metric_counter(struct statsd *statsd, const char *name, int64_t incr);
+int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms);
+int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
+  int flags);
+
+/* Use this flag, for a gauge, for adjusting the existing gauge value, rather
+ * that setting it.
+ */
+#define STATSD_METRIC_GAUGE_FL_ADJUST		0x0001
 
 #endif /* MOD_STATSD_METRIC_H */

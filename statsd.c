@@ -24,14 +24,6 @@
 
 #include "statsd.h"
 
-/* Per the excellent documentation on multi-metric packets here:
- *
- *  https://github.com/etsy/statsd/blob/master/docs/metric_types.md#multi-metric-packets
- *
- * We'll use a maximum packet size of 512 bytes, for interoperability.
- */
-#define STATSD_MAX_PACKET_LEN	512
-
 struct statsd {
   pool *pool;
 
@@ -61,7 +53,7 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr) {
 
   family = pr_netaddr_get_family(addr);
   fd = socket(family, SOCK_DGRAM, statsd_proto_udp);
-  xerrno = xerrno;
+  xerrno = errno;
 
   if (fd < 0) {
     pr_trace_msg(trace_channel, 1, "error opening %s UDP socket: %s",
@@ -93,6 +85,15 @@ int statsd_statsd_close(struct statsd *statsd) {
   return 0;
 }
 
+pool *statsd_statsd_get_pool(struct statsd *statsd) {
+  if (statsd == NULL) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  return statsd->pool;
+}
+
 int statsd_statsd_set_fd(struct statsd *statsd, int fd) {
   if (statsd == NULL) {
     errno = EINVAL;
@@ -105,13 +106,12 @@ int statsd_statsd_set_fd(struct statsd *statsd, int fd) {
   return 0;
 }
 
-static void send_metrics(struct statsd *statsd) {
-  if (statsd->metrics_buf != NULL) {
+static void send_metrics(struct statsd *statsd, const void *buf, size_t len) {
+  if (statsd->addr != NULL) {
     int res, xerrno;
 
     while (TRUE) {
-      res = sendto(statsd->fd, statsd->metrics_buf, statsd->metrics_buflen, 0,
-        pr_netaddr_get_sockaddr(statsd->addr),
+      res = sendto(statsd->fd, buf, len, 0, pr_netaddr_get_sockaddr(statsd->addr),
         pr_netaddr_get_sockaddr_len(statsd->addr));
       xerrno = errno;
 
@@ -123,8 +123,7 @@ static void send_metrics(struct statsd *statsd) {
 
         pr_trace_msg(trace_channel, 5,
           "error sending %lu bytes of metrics data to %s:%d: %s",
-          (unsigned long) statsd->metrics_buflen,
-          pr_netaddr_get_ipstr(statsd->addr),
+          (unsigned long) len, pr_netaddr_get_ipstr(statsd->addr),
           ntohs(pr_netaddr_get_port(statsd->addr)), strerror(xerrno));
         errno = xerrno;
 
@@ -132,38 +131,41 @@ static void send_metrics(struct statsd *statsd) {
         /* XXX Should we watch for short writes? */
         pr_trace_msg(trace_channel, 19,
           "sent %d bytes of metrics data (of %lu bytes pending) to %s:%d", res,
-          (unsigned long) statsd->metrics_buflen,
-          pr_netaddr_get_ipstr(statsd->addr),
+          (unsigned long) len, pr_netaddr_get_ipstr(statsd->addr),
           ntohs(pr_netaddr_get_port(statsd->addr)));
       }
 
       break;
     }
-
-    destroy_pool(statsd->metrics_pool);
-    statsd->metrics_pool = NULL;
-    statsd->metrics_buf = NULL;
-    statsd->metrics_buflen = 0;
   }
 }
 
-int statsd_statsd_write(struct statsd *statsd, const char *metric, int flags) {
-  size_t metric_len;
+static void clear_metrics(struct statsd *statsd) {
+  if (statsd->metrics_pool != NULL) {
+    destroy_pool(statsd->metrics_pool);
+  }
+  statsd->metrics_pool = NULL;
+  statsd->metrics_buf = NULL;
+  statsd->metrics_buflen = 0;
+}
+
+int statsd_statsd_write(struct statsd *statsd, const char *metric,
+    size_t metric_len, int flags) {
 
   if (statsd == NULL ||
-      metric == NULL) {
+      metric == NULL ||
+      metric_len == 0) {
     errno = EINVAL;
     return -1;
   }
-
-  metric_len = strlen(metric);
 
   /* Would this metric put us over the max packet size?  If so, flush the
    * metrics now.
    */
   if (statsd->metrics_buf != NULL) {
-    if ((statsd->metrics_buflen + metric_len + 1) > STATSD_MAX_PACKET_LEN) {
-      send_metrics(statsd);
+    if ((statsd->metrics_buflen + metric_len + 1) > STATSD_MAX_PACKET_SIZE) {
+      send_metrics(statsd, statsd->metrics_buf, statsd->metrics_buflen);
+      clear_metrics(statsd);
     }
   }
 
@@ -181,7 +183,8 @@ int statsd_statsd_write(struct statsd *statsd, const char *metric, int flags) {
   }
 
   if (flags & STATSD_STATSD_FL_SEND_NOW) {
-    send_metrics(statsd);
+    send_metrics(statsd, statsd->metrics_buf, statsd->metrics_buflen);
+    clear_metrics(statsd);
   }
 
   return 0;
@@ -193,7 +196,8 @@ int statsd_statsd_flush(struct statsd *statsd) {
     return -1;
   }
 
-  send_metrics(statsd);
+  send_metrics(statsd, statsd->metrics_buf, statsd->metrics_buflen);
+  clear_metrics(statsd);
   return 0;
 }
 

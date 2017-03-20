@@ -25,6 +25,7 @@
 /* Alias tests. */
 
 #include "tests.h"
+#include "statsd.h"
 #include "metric.h"
 
 static pool *p = NULL;
@@ -50,6 +51,142 @@ static void tear_down(void) {
   } 
 }
 
+static const pr_netaddr_t *statsd_addr(unsigned int port) {
+  const pr_netaddr_t *addr;
+
+  addr = pr_netaddr_get_addr(p, "127.0.0.1", NULL);
+  fail_unless(addr != NULL, "Failed to resolve 127.0.0.1: %s", strerror(errno));
+  pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
+
+  return addr;
+}
+
+START_TEST (metric_counter_test) {
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_metric_counter(NULL, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_metric_counter(statsd, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null name");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  res = statsd_metric_counter(statsd, "foo", 0);
+  fail_unless(res == 0, "Failed to set counter: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_flush(statsd);
+  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+}
+END_TEST
+
+START_TEST (metric_timer_test) {
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+  uint64_t ms;
+
+  mark_point();
+  res = statsd_metric_timer(NULL, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_metric_timer(statsd, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null name");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  ms = 1;
+
+  mark_point();
+  res = statsd_metric_timer(statsd, "foo", ms);
+  fail_unless(res == 0, "Failed to set timer: %s", strerror(errno));
+
+  /* Deliberately use a very large timer, to test the truncation. */
+  ms = 315360000000UL;
+
+  mark_point();
+  res = statsd_metric_timer(statsd, "bar", ms);
+  fail_unless(res == 0, "Failed to set timer: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_flush(statsd);
+  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+}
+END_TEST
+
+START_TEST (metric_gauge_test) {
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_metric_gauge(NULL, NULL, 0, 0);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_metric_gauge(statsd, NULL, 0, 0);
+  fail_unless(res < 0, "Failed to handle null name");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  res = statsd_metric_gauge(statsd, "foo", 1, 0);
+  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_metric_gauge(statsd, "foo", 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_metric_gauge(statsd, "foo", -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_flush(statsd);
+  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+}
+END_TEST
+
 Suite *tests_get_metric_suite(void) {
   Suite *suite;
   TCase *testcase;
@@ -58,6 +195,10 @@ Suite *tests_get_metric_suite(void) {
   testcase = tcase_create("base");
 
   tcase_add_checked_fixture(testcase, set_up, tear_down);
+
+  tcase_add_test(testcase, metric_counter_test);
+  tcase_add_test(testcase, metric_timer_test);
+  tcase_add_test(testcase, metric_gauge_test);
 
   suite_add_tcase(suite, testcase);
   return suite;

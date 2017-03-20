@@ -102,6 +102,32 @@ START_TEST (statsd_open_test) {
 }
 END_TEST
 
+START_TEST (statsd_get_pool_test) {
+  pool *res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_get_pool(NULL);
+  fail_unless(res == NULL, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_get_pool(statsd);
+  fail_unless(res != NULL, "Failed to get pool: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+}
+END_TEST
+
 START_TEST (statsd_set_fd_test) {
   int res;
   const pr_netaddr_t *addr;
@@ -134,7 +160,7 @@ START_TEST (statsd_write_test) {
   struct statsd *statsd;
 
   mark_point();
-  res = statsd_statsd_write(NULL, NULL, 0);
+  res = statsd_statsd_write(NULL, NULL, 0, 0);
   fail_unless(res < 0, "Failed to handle null statsd");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
@@ -147,17 +173,23 @@ START_TEST (statsd_write_test) {
     strerror(errno));
 
   mark_point();
-  res = statsd_statsd_write(statsd, NULL, 0);
+  res = statsd_statsd_write(statsd, NULL, 0, 0);
   fail_unless(res < 0, "Failed to handle null metric");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
-  res = statsd_statsd_write(statsd, "foo", 0);
+  res = statsd_statsd_write(statsd, "foo", 0, 0);
+  fail_unless(res < 0, "Failed to handle zero length metric");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  res = statsd_statsd_write(statsd, "foo", 3, 0);
   fail_unless(res == 0, "Failed to send metric: %s", strerror(errno));
 
   mark_point();
-  res = statsd_statsd_write(statsd, "bar", STATSD_STATSD_FL_SEND_NOW);
+  res = statsd_statsd_write(statsd, "bar", 3, STATSD_STATSD_FL_SEND_NOW);
   fail_unless(res == 0, "Failed to send metric now: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
@@ -171,7 +203,7 @@ START_TEST (statsd_write_test) {
     strerror(errno));
 
   mark_point();
-  res = statsd_statsd_write(statsd, "bar", STATSD_STATSD_FL_SEND_NOW);
+  res = statsd_statsd_write(statsd, "bar", 3, STATSD_STATSD_FL_SEND_NOW);
   fail_unless(res == 0, "Failed to send metric now: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
@@ -201,7 +233,7 @@ START_TEST (statsd_flush_test) {
   fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
 
   mark_point();
-  res = statsd_statsd_write(statsd, "foo", 0);
+  res = statsd_statsd_write(statsd, "foo", 3, 0);
   fail_unless(res == 0, "Failed to send metric: %s", strerror(errno));
 
   mark_point();
@@ -223,6 +255,7 @@ Suite *tests_get_statsd_suite(void) {
 
   tcase_add_test(testcase, statsd_close_test);
   tcase_add_test(testcase, statsd_open_test);
+  tcase_add_test(testcase, statsd_get_pool_test);
   tcase_add_test(testcase, statsd_set_fd_test);
   tcase_add_test(testcase, statsd_write_test);
   tcase_add_test(testcase, statsd_flush_test);
