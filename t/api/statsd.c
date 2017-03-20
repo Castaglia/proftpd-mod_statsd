@@ -34,6 +34,8 @@ static void set_up(void) {
     p = make_sub_pool(NULL);
   }
 
+  statsd_statsd_init();
+
   if (getenv("TEST_VERBOSE") != NULL) {
     pr_trace_set_levels("statsd.statsd", 1, 20);
   }
@@ -44,11 +46,38 @@ static void tear_down(void) {
     pr_trace_set_levels("statsd.statsd", 0, 0);
   }
 
+  statsd_statsd_free();
+
   if (p) {
     destroy_pool(p);
     p = NULL;
   } 
 }
+
+START_TEST (statsd_close_test) {
+  fail("Not implemented");
+}
+END_TEST
+
+START_TEST (statsd_open_test) {
+  fail("Not implemented");
+}
+END_TEST
+
+START_TEST (statsd_set_fd_test) {
+  fail("Not implemented");
+}
+END_TEST
+
+START_TEST (statsd_write_test) {
+  fail("Not implemented");
+}
+END_TEST
+
+START_TEST (statsd_flush_test) {
+  fail("Not implemented");
+}
+END_TEST
 
 Suite *tests_get_statsd_suite(void) {
   Suite *suite;
@@ -58,6 +87,12 @@ Suite *tests_get_statsd_suite(void) {
   testcase = tcase_create("base");
 
   tcase_add_checked_fixture(testcase, set_up, tear_down);
+
+  tcase_add_test(testcase, statsd_close_test);
+  tcase_add_test(testcase, statsd_open_test);
+  tcase_add_test(testcase, statsd_set_fd_test);
+  tcase_add_test(testcase, statsd_write_test);
+  tcase_add_test(testcase, statsd_flush_test);
 
   suite_add_tcase(suite, testcase);
   return suite;

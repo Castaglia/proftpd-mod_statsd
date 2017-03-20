@@ -109,51 +109,22 @@ MODRET set_statsdserver(cmd_rec *cmd) {
 /* Command handlers
  */
 
+MODRET statsd_pre_any(cmd_rec *cmd) {
+  if (statsd_engine == FALSE) {
+    return PR_DECLINED(cmd);
+  }
+
+  /* XXX Maintain a timestamp, for tracking the timing per command. */
+
+  return PR_DECLINED(cmd);
+}
+
 MODRET statsd_log_any(cmd_rec *cmd) {
-  config_rec *c;
-
-  c = find_config(TOPLEVEL_CONF, CONF_PARAM, "TarEngine", FALSE);
-  if (c) {
-    int enable_tar = *((int *) c->argv[0]);
-
-    if (enable_tar) {
-      tar_engine = TRUE;
-    }
+  if (statsd_engine == FALSE) {
+    return PR_DECLINED(cmd);
   }
 
-  if (tar_engine) {
-    pr_event_register(&tar_module, "core.exit", tar_exit_ev, NULL);
-
-    c = find_config(TOPLEVEL_CONF, CONF_PARAM, "TarOptions", FALSE);
-    while (c != NULL) {
-      unsigned long opts;
-
-      pr_signals_handle();
-
-      opts = *((unsigned long *) c->argv[0]);
-      tar_opts |= opts;
-
-      c = find_config_next(c, c->next, CONF_PARAM, "TarOptions", FALSE);
-    }
-
-    c = find_config(TOPLEVEL_CONF, CONF_PARAM, "TarTempPath", FALSE);
-    if (c) {
-      tar_tmp_path = dir_canonical_path(session.pool, c->argv[0]);
-
-      if (session.chroot_path) {
-        size_t chroot_len;
-
-        chroot_len = strlen(session.chroot_path);
-        if (strncmp(tar_tmp_path, session.chroot_path, chroot_len) == 0) {
-          tar_tmp_path += chroot_len;
-        }
-      }
-
-      (void) pr_log_writefile(tar_logfd, MOD_TAR_VERSION,
-        "using '%s' as the staging directory for temporary .tar files",
-        tar_tmp_path);
-    }
-  }
+/* Counter per command.  Per response? */
 
   return PR_DECLINED(cmd);
 }
@@ -214,6 +185,9 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
 
 static int statsd_sess_init(void) {
   config_rec *c;
+  char *host;
+  int port;
+  const pr_netaddr_t *addr;
 
   c = find_config(main_server->conf, CONF_PARAM, "StatsdEngine", FALSE);
   if (c != NULL) {
@@ -225,7 +199,32 @@ static int statsd_sess_init(void) {
   }
 
   c = find_config(main_server->conf, CONF_PARAM, "StatsdServer", FALSE);
-  if (c != NULL) {
+  if (c == NULL) {
+    pr_log_debug(DEBUG10, MOD_STATSD_VERSION
+      ": missing required StatsdServer directive, disabling module");
+    statsd_engine = FALSE;
+    return 0;
+  }
+
+  host = c->argv[0];
+  addr = pr_netaddr_get_addr(session.pool, host, NULL);
+  if (addr == NULL) {
+    pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
+      ": error resolving '%s' to IP address: %s", host, strerror(xerrno));
+    statsd_engine = FALSE;
+    return 0;
+  }
+
+  port = *((int *) c->argv[1];
+  pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
+
+  statsd = statsd_statsd_open(session.pool, addr);
+  if (statsd == NULL) {
+    pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
+      ": error opening statsd connection to %s:%d: %s", host, port,
+      strerror(errno));
+    statsd_engine = FALSE;
+    return 0;
   }
 
   pr_event_register(&statsd_module, "core.exit", statsd_exit_ev, NULL);
@@ -250,7 +249,7 @@ static int statsd_init(void) {
 
 static conftable statsd_conftab[] = {
   { "StatsdEngine",	set_statsdengine,	NULL },
-  { "StatsdServer",	set_statsserver,	NULL },
+  { "StatsdServer",	set_statsdserver,	NULL },
   { NULL }
 };
 
