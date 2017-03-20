@@ -134,7 +134,7 @@ MODRET statsd_log_any(cmd_rec *cmd) {
 
 static void statsd_exit_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
-    statsd_close(statsd);
+    statsd_statsd_close(statsd);
     statsd = NULL;
   }
 }
@@ -168,14 +168,15 @@ static void statsd_postparse_ev(const void *event_data, void *user_data) {
     if (c == NULL) {
       pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
         ": Server %s: missing required StatsdServer directive", s->ServerName);
-      pr_session_disconnect(&tls_module, PR_SESS_DISCONNECT_BAD_CONFIG, NULL);
+      pr_session_disconnect(&statsd_module, PR_SESS_DISCONNECT_BAD_CONFIG,
+        NULL);
     }
   }
 }
 
 static void statsd_shutdown_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
-    statsd_close(statsd);
+    statsd_statsd_close(statsd);
     statsd = NULL;
   }
 }
@@ -210,12 +211,12 @@ static int statsd_sess_init(void) {
   addr = pr_netaddr_get_addr(session.pool, host, NULL);
   if (addr == NULL) {
     pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
-      ": error resolving '%s' to IP address: %s", host, strerror(xerrno));
+      ": error resolving '%s' to IP address: %s", host, strerror(errno));
     statsd_engine = FALSE;
     return 0;
   }
 
-  port = *((int *) c->argv[1];
+  port = *((int *) c->argv[1]);
   pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
 
   statsd = statsd_statsd_open(session.pool, addr);
