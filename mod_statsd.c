@@ -20,12 +20,13 @@
  * give permission to link this program with OpenSSL, and distribute the
  * resulting executable, without including the source code for OpenSSL in the
  * source distribution.
+ *
+ * -----DO NOT EDIT BELOW THIS LINE-----
+ * $Archive: mod_statsd.a $
  */
 
 #include "mod_statsd.h"
 #include "statsd.h"
-
-#define STATSD_DEFAULT_PORT	8125
 
 extern xaset_t *server_list;
 

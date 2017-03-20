@@ -34,4 +34,6 @@
 # error "ProFTPD 1.3.6rc2 or later required"
 #endif
 
+#define STATSD_DEFAULT_PORT		8125
+
 #endif /* MOD_STATSD_H */

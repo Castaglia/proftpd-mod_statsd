@@ -54,28 +54,161 @@ static void tear_down(void) {
   } 
 }
 
+static const pr_netaddr_t *statsd_addr(unsigned int port) {
+  const pr_netaddr_t *addr;
+
+  addr = pr_netaddr_get_addr(p, "127.0.0.1", NULL);
+  fail_unless(addr != NULL, "Failed to resolve 127.0.0.1: %s", strerror(errno));
+  pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
+
+  return addr;
+}
+
 START_TEST (statsd_close_test) {
-  fail("Not implemented");
+  int res;
+
+  mark_point();
+  res = statsd_statsd_close(NULL);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
 }
 END_TEST
 
 START_TEST (statsd_open_test) {
-  fail("Not implemented");
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  statsd = statsd_statsd_open(NULL, NULL);
+  fail_unless(statsd == NULL, "Failed to handle null pool");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, NULL);
+  fail_unless(statsd == NULL, "Failed to handle null addr");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
 }
 END_TEST
 
 START_TEST (statsd_set_fd_test) {
-  fail("Not implemented");
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_set_fd(NULL, -1);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_set_fd(statsd, -1);
+  fail_unless(res == 0, "Failed to set fd: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
 }
 END_TEST
 
 START_TEST (statsd_write_test) {
-  fail("Not implemented");
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_write(NULL, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_write(statsd, NULL, 0);
+  fail_unless(res < 0, "Failed to handle null metric");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  res = statsd_statsd_write(statsd, "foo", 0);
+  fail_unless(res == 0, "Failed to send metric: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_write(statsd, "bar", STATSD_STATSD_FL_SEND_NOW);
+  fail_unless(res == 0, "Failed to send metric now: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+
+  /* Now test sending metrics to a bad port. */
+  addr = statsd_addr(45778);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_write(statsd, "bar", STATSD_STATSD_FL_SEND_NOW);
+  fail_unless(res == 0, "Failed to send metric now: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
 }
 END_TEST
 
 START_TEST (statsd_flush_test) {
-  fail("Not implemented");
+  int res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_flush(NULL);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_flush(statsd);
+  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_write(statsd, "foo", 0);
+  fail_unless(res == 0, "Failed to send metric: %s", strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_flush(statsd);
+  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
 }
 END_TEST
 
@@ -83,7 +216,7 @@ Suite *tests_get_statsd_suite(void) {
   Suite *suite;
   TCase *testcase;
 
-  suite = suite_create("metric");
+  suite = suite_create("statsd");
   testcase = tcase_create("base");
 
   tcase_add_checked_fixture(testcase, set_up, tear_down);
