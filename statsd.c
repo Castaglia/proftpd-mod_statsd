@@ -111,12 +111,12 @@ static void send_metrics(struct statsd *statsd) {
 
     while (TRUE) {
       res = sendto(statsd->fd, statsd->metrics_buf, statsd->metrics_buflen, 0,
-        pr_netaddr_get_sockaddr(statds->addr),
+        pr_netaddr_get_sockaddr(statsd->addr),
         pr_netaddr_get_sockaddr_len(statsd->addr));
       xerrno = errno;
 
       if (res < 0) {
-        (xerrno == EINTR) {
+        if (xerrno == EINTR) {
           pr_signals_handle();
           continue;
         }
@@ -143,12 +143,11 @@ static void send_metrics(struct statsd *statsd) {
     destroy_pool(statsd->metrics_pool);
     statsd->metrics_pool = NULL;
     statsd->metrics_buf = NULL;
-    statsd->metrics_len = 0;
+    statsd->metrics_buflen = 0;
   }
 }
 
 int statsd_statsd_write(struct statsd *statsd, const char *metric, int flags) {
-  int append_metric = TRUE;
   size_t metric_len;
 
   if (statsd == NULL ||
@@ -163,7 +162,7 @@ int statsd_statsd_write(struct statsd *statsd, const char *metric, int flags) {
    * metrics now.
    */
   if (statsd->metrics_buf != NULL) {
-    if (statsd->metrics_buflen + metric_len + 1 > STATSD_MAX_PACKET_SIZE) {
+    if ((statsd->metrics_buflen + metric_len + 1) > STATSD_MAX_PACKET_LEN) {
       send_metrics(statsd);
     }
   }
