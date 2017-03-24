@@ -36,4 +36,10 @@
 
 #define STATSD_DEFAULT_PORT		8125
 
+/* Define if you have the random(3) function.  */
+#undef HAVE_RANDOM
+
+/* Define if you have the srandom(3) function.  */
+#undef HAVE_SRANDOM
+
 #endif /* MOD_STATSD_H */

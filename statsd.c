@@ -79,6 +79,9 @@ int statsd_statsd_close(struct statsd *statsd) {
     return -1;
   }
 
+  /* Flush any pending metrics. */
+  (void) statsd_statsd_flush(statsd);
+
   (void) close(statsd->fd);
   destroy_pool(statsd->pool);
 
@@ -158,6 +161,9 @@ int statsd_statsd_write(struct statsd *statsd, const char *metric,
     errno = EINVAL;
     return -1;
   }
+
+  pr_trace_msg(trace_channel, 19, "adding statsd metric: '%.*s'",
+    (int) metric_len, metric);
 
   /* Would this metric put us over the max packet size?  If so, flush the
    * metrics now.

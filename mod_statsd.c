@@ -27,6 +27,7 @@
 
 #include "mod_statsd.h"
 #include "statsd.h"
+#include "metric.h"
 
 extern xaset_t *server_list;
 
@@ -36,6 +37,42 @@ static int statsd_engine = FALSE;
 static struct statsd *statsd = NULL;
 
 static const char *trace_channel = "statsd";
+
+static char *get_cmd_metric(pool *p, const char *cmd) {
+  const char *resp_code = NULL;
+  char *metric;
+
+  /* [${prefix}.]command.${cmd}.${respcode}[.${suffix}] */
+
+  if (strcasecmp(cmd, C_QUIT) != 0) {
+    int res;
+
+    res = pr_response_get_last(p, &resp_code, NULL);
+    if (res < 0 ||
+        resp_code == NULL) {
+      resp_code = "-";
+    }
+
+  } else {
+    resp_code = R_221;
+  }
+
+  metric = pstrcat(p, "command.", cmd, ".", resp_code, NULL);
+  return metric;
+}
+
+static char *get_conn_metric(pool *p) {
+  /* [${prefix}.]connection[.${suffix}] */
+  return pstrdup(p, "connection");
+}
+
+static int should_sample(void) {
+  /* XXX Eventually this will use some calculation to determine whether
+   * we're within a sampling window/rate.
+   */
+
+  return TRUE;
+}
 
 /* Configuration handlers
  */
@@ -110,23 +147,35 @@ MODRET set_statsdserver(cmd_rec *cmd) {
 /* Command handlers
  */
 
-MODRET statsd_pre_any(cmd_rec *cmd) {
-  if (statsd_engine == FALSE) {
-    return PR_DECLINED(cmd);
-  }
-
-  /* XXX Maintain a timestamp, for tracking the timing per command. */
-
-  return PR_DECLINED(cmd);
-}
-
 MODRET statsd_log_any(cmd_rec *cmd) {
+  char *metric;
+  const uint64_t *start_ms;
+
   if (statsd_engine == FALSE) {
     return PR_DECLINED(cmd);
   }
 
-/* Counter per command.  Per response? */
+  if (should_sample() != TRUE) {
+    pr_trace_msg(trace_channel, 28, "skipping sampling of metric for '%s'",
+      (char *) cmd->argv[0]);
+    return PR_DECLINED(cmd);
+  }
 
+  metric = get_cmd_metric(cmd->tmp_pool, cmd->argv[0]);
+  statsd_metric_counter(statsd, metric, 1);
+
+  start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
+  if (start_ms != NULL) {
+    uint64_t end_ms, response_ms;
+
+    pr_gettimeofday_millis(&end_ms);
+
+    response_ms = end_ms - *start_ms;
+
+    statsd_metric_timer(statsd, metric, response_ms);
+  }
+
+  statsd_statsd_flush(statsd);
   return PR_DECLINED(cmd);
 }
 
@@ -135,6 +184,11 @@ MODRET statsd_log_any(cmd_rec *cmd) {
 
 static void statsd_exit_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
+    char *metric;
+
+    metric = get_conn_metric(session.pool);
+    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+
     statsd_statsd_close(statsd);
     statsd = NULL;
   }
@@ -187,7 +241,7 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
 
 static int statsd_sess_init(void) {
   config_rec *c;
-  char *host;
+  char *host, *metric;
   int port;
   const pr_netaddr_t *addr;
 
@@ -229,6 +283,10 @@ static int statsd_sess_init(void) {
     return 0;
   }
 
+  metric = get_conn_metric(session.pool);
+  statsd_metric_gauge(statsd, metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_statsd_flush(statsd);
+
   pr_event_register(&statsd_module, "core.exit", statsd_exit_ev, NULL);
   return 0;
 }
@@ -256,7 +314,6 @@ static conftable statsd_conftab[] = {
 };
 
 static cmdtable statsd_cmdtab[] = {
-  { PRE_CMD,		C_ANY,	G_NONE,	statsd_pre_any,	FALSE,	FALSE },
   { LOG_CMD,		C_ANY,	G_NONE,	statsd_log_any,	FALSE,	FALSE },
   { LOG_CMD_ERR,	C_ANY,	G_NONE,	statsd_log_any,	FALSE,	FALSE },
 };
