@@ -52,21 +52,38 @@ metrics to the configured <code>statsd</code> server.
 
 <hr>
 <h3><a name="StatsdServer">StatsdServer</a></h3>
-<strong>Syntax:</strong> StatsdServer <em>address[:port]</em><br>
+<strong>Syntax:</strong> StatsdServer <em>[scheme://]address[:port]</em><br>
 <strong>Default:</strong> None<br>
 <strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
 <strong>Module:</strong> mod_statsd<br>
 <strong>Compatibility:</strong> 1.3.6rc1 and later
 
 <p>
-The <code>TarOptions</code> directive is used to configure various optional
-behavior of <code>mod_tar</code>, usually pertaining to how the
-<code>.tar</code> files are constructed.
+The <code>StatsdServer</code> directive is used to configure the IP address/port
+of the <code>statsd</code> server that the <code>mod_statsd</code> module is
+to use.  For example:
+<pre>
+  StatsdServer 1.2.3.4:8125
+</pre>
+or, for an IPv6 address, make sure the IPv6 address is enclosed in square
+brackets:
+<pre>
+  StatsdServer [::ffff:1.2.3.4]:8125
+</pre>
 
 <p>
-Example:
+By default, the <code>mod_statsd</code> module will use UDP when sending metrics
+to the configured <code>statsd</code> server.  For more reliable (but slower)
+transmission of data using TCP, use the optional <em>scheme</em> prefix,
+<i>e.g.</i>:
 <pre>
-  TarOptions FollowSymlinks
+  # Use TCP instead of UDP
+  StatsdServer tcp://1.2.3.4:8125
+</pre>
+or, to explicitly declare that you want to use UDP:
+<pre>
+  # Use UDP, with an IPv6 address
+  StatsdServer udp://[::ffff:1.2.3.4]:8125
 </pre>
 
 <p>

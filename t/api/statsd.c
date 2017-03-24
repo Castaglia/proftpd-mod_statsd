@@ -80,13 +80,13 @@ START_TEST (statsd_open_test) {
   struct statsd *statsd;
 
   mark_point();
-  statsd = statsd_statsd_open(NULL, NULL);
+  statsd = statsd_statsd_open(NULL, NULL, FALSE);
   fail_unless(statsd == NULL, "Failed to handle null pool");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
-  statsd = statsd_statsd_open(p, NULL);
+  statsd = statsd_statsd_open(p, NULL, FALSE);
   fail_unless(statsd == NULL, "Failed to handle null addr");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
@@ -94,11 +94,25 @@ START_TEST (statsd_open_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   (void) statsd_statsd_close(statsd);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr, TRUE);
+
+  /* If statsd IS running, but is not configued for TCP, the "Connection
+   * refused" error is expected.
+   */
+  if (statsd != NULL &&
+      errno != ECONNREFUSED) {
+    fail("Failed to open TCP statsd connection: %s", strerror(errno));
+
+  } else {
+    (void) statsd_statsd_close(statsd);
+  }
 }
 END_TEST
 
@@ -116,7 +130,7 @@ START_TEST (statsd_get_pool_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -142,7 +156,7 @@ START_TEST (statsd_set_fd_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -168,7 +182,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -198,7 +212,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(45778);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -224,7 +238,7 @@ START_TEST (statsd_flush_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr);
+  statsd = statsd_statsd_open(p, addr, FALSE);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 

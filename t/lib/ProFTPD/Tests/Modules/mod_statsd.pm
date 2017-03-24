@@ -26,6 +26,17 @@ my $TESTS = {
     test_class => [qw(forking)],
   },
 
+  statsd_server_udp => {
+    order => ++$order,
+    test_class => [qw(forking)],
+  },
+
+  # Note: this test requires that statsd be listening for TCP, not UDP.
+  statsd_server_tcp => {
+    order => ++$order,
+    test_class => [qw(forking inprogress)],
+  },
+
 };
 
 sub new {
@@ -73,9 +84,7 @@ sub list_tests {
   return testsuite_get_runnable_tests($TESTS);
 }
 
-sub get_statsd_info {
-  my $cmd = shift;
-
+sub statsd_mgmt {
   my $port = $ENV{STATSD_MGMT_PORT};
   my $opts = {
     PeerHost => '127.0.0.1',
@@ -90,16 +99,23 @@ sub get_statsd_info {
     croak("Can't connect to 127.0.0.1:$port: $!");
   }
 
+  return $client;
+}
+
+sub statsd_cmd {
+  my $statsd = shift;
+  my $cmd = shift;
+
   if ($ENV{TEST_DEBUG}) {
     print STDERR "# Sending command: $cmd\n";
   }
 
-  $client->print("$cmd\n");
-  $client->flush();
+  $statsd->print("$cmd\n");
+  $statsd->flush();
 
-  my $json = '';
+  my $resp = '';
 
-  while (my $line = <$client>) {
+  while (my $line = <$statsd>) {
     chomp($line);
 
     if ($ENV{TEST_DEBUG}) {
@@ -107,10 +123,34 @@ sub get_statsd_info {
     }
 
     last if $line eq 'END';
-    $json .= $line;
+    $resp .= $line;
   }
 
-  $client->close();
+  return $resp;
+}
+
+sub delete_statsd_info {
+  my $statsd = statsd_mgmt();
+
+  my $cmd = "delcounters command.*";
+  statsd_cmd($statsd, $cmd);
+
+  $cmd = "deltimers command.*";
+  statsd_cmd($statsd, $cmd);
+
+  $cmd = "delgauges connections";
+  statsd_cmd($statsd, $cmd);
+
+  $statsd->close();
+  return 1;
+}
+
+sub get_statsd_info {
+  my $cmd = shift;
+
+  my $statsd = statsd_mgmt();
+  my $json = statsd_cmd($statsd, $cmd);
+  $statsd->close();
 
   # statsd gives us (badly formatted) JSON; decode it into Perl.
   $json =~ s/ (\S+): / '\1': /g;
@@ -157,9 +197,7 @@ sub statsd_engine {
   my ($port, $config_user, $config_group) = config_write($setup->{config_file},
     $config);
 
-  my $counters_before = get_statsd_info('counters');
-  my $timers_before = get_statsd_info('timers');
-  my $gauges_before = get_statsd_info('gauges');
+  delete_statsd_info();
 
   # Open pipes, for use between the parent and child processes.  Specifically,
   # the child will indicate when it's done with its test by writing a message
@@ -201,7 +239,7 @@ sub statsd_engine {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters_after = get_statsd_info('counters');
+  my $counters = get_statsd_info('counters');
 
   my $counter_names = [qw(
     command.USER.331
@@ -210,15 +248,12 @@ sub statsd_engine {
   )];
 
   foreach my $counter_name (@$counter_names) {
-    my $count_before = $counters_before->{$counter_name};
-    my $count_after = $counters_after->{$counter_name};
-
-    my $counts = $count_after - $count_before;
+    my $counts = $counters->{$counter_name};
     $self->assert($counts > 0,
       "Expected count values for $counter_name, found none");
   }
 
-  my $timers_after = get_statsd_info('timers');
+  my $timers = get_statsd_info('timers');
 
   # For timers, we simply expect to HAVE timings
   my $timer_names = [qw(
@@ -228,17 +263,243 @@ sub statsd_engine {
   )];
 
   foreach my $timer_name (@$timer_names) {
-    my $timings = $timers_after->{$timer_name};
+    my $timings = $timers->{$timer_name};
     $self->assert(scalar(@$timings) > 0,
       "Expected timing values for $timer_name, found none");
   }
 
-  my $gauges_after = get_statsd_info('gauges');
+  my $gauges = get_statsd_info('gauges');
 
   # Our connection gauge is a GAUGE; we expect it to have the same value after
   # as before.
-  $self->assert($gauges_after->{connection} == $gauges_before->{connection},
-    "Expected connection gauge $gauges_before->{connection}, got $gauges_after->{Connection}");
+  $self->assert($gauges->{connection} == 0,
+    "Expected connection gauge 0, got $gauges->{Connection}");
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub statsd_server_udp {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'statsd');
+
+  my $statsd_port = 8125;
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'statsd:20 statsd.statsd:20 statsd.metric:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_statsd.c' => {
+        StatsdEngine => 'on',
+        StatsdServer => "udp://127.0.0.1:$statsd_port",
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  delete_statsd_info();
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+      $client->quit();
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  my $counters = get_statsd_info('counters');
+
+  my $counter_names = [qw(
+    command.USER.331
+    command.PASS.230
+    command.QUIT.221
+  )];
+
+  foreach my $counter_name (@$counter_names) {
+    my $counts = $counters->{$counter_name};
+    $self->assert($counts > 0,
+      "Expected count values for $counter_name, found none");
+  }
+
+  my $timers = get_statsd_info('timers');
+
+  # For timers, we simply expect to HAVE timings
+  my $timer_names = [qw(
+    command.USER.331
+    command.PASS.230
+    command.QUIT.221
+  )];
+
+  foreach my $timer_name (@$timer_names) {
+    my $timings = $timers->{$timer_name};
+    $self->assert(scalar(@$timings) > 0,
+      "Expected timing values for $timer_name, found none");
+  }
+
+  my $gauges = get_statsd_info('gauges');
+
+  # Our connection gauge is a GAUGE; we expect it to have the same value after
+  # as before.
+  $self->assert($gauges->{connection} == 0,
+    "Expected connection gauge 0, got $gauges->{connection}");
+
+  test_cleanup($setup->{log_file}, $ex);
+}
+
+sub statsd_server_tcp {
+  my $self = shift;
+  my $tmpdir = $self->{tmpdir};
+  my $setup = test_setup($tmpdir, 'statsd');
+
+  my $statsd_port = 8125;
+
+  my $config = {
+    PidFile => $setup->{pid_file},
+    ScoreboardFile => $setup->{scoreboard_file},
+    SystemLog => $setup->{log_file},
+    TraceLog => $setup->{log_file},
+    Trace => 'statsd:20 statsd.statsd:20 statsd.metric:20',
+
+    AuthUserFile => $setup->{auth_user_file},
+    AuthGroupFile => $setup->{auth_group_file},
+
+    IfModules => {
+      'mod_statsd.c' => {
+        StatsdEngine => 'on',
+        StatsdServer => "tcp://127.0.0.1:$statsd_port",
+      },
+
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+    },
+  };
+
+  my ($port, $config_user, $config_group) = config_write($setup->{config_file},
+    $config);
+
+  delete_statsd_info();
+
+  # Open pipes, for use between the parent and child processes.  Specifically,
+  # the child will indicate when it's done with its test by writing a message
+  # to the parent.
+  my ($rfh, $wfh);
+  unless (pipe($rfh, $wfh)) {
+    die("Can't open pipe: $!");
+  }
+
+  my $ex;
+
+  # Fork child
+  $self->handle_sigchld();
+  defined(my $pid = fork()) or die("Can't fork: $!");
+  if ($pid) {
+    eval {
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
+      $client->quit();
+    };
+    if ($@) {
+      $ex = $@;
+    }
+
+    $wfh->print("done\n");
+    $wfh->flush();
+
+  } else {
+    eval { server_wait($setup->{config_file}, $rfh) };
+    if ($@) {
+      warn($@);
+      exit 1;
+    }
+
+    exit 0;
+  }
+
+  # Stop server
+  server_stop($setup->{pid_file});
+  $self->assert_child_ok($pid);
+
+  my $counters = get_statsd_info('counters');
+
+  my $counter_names = [qw(
+    command.USER.331
+    command.PASS.230
+    command.QUIT.221
+  )];
+
+  foreach my $counter_name (@$counter_names) {
+    my $counts = $counters->{$counter_name};
+    $self->assert($counts > 0,
+      "Expected count values for $counter_name, found none");
+  }
+
+  my $timers = get_statsd_info('timers');
+
+  # For timers, we simply expect to HAVE timings
+  my $timer_names = [qw(
+    command.USER.331
+    command.PASS.230
+    command.QUIT.221
+  )];
+
+  foreach my $timer_name (@$timer_names) {
+    my $timings = $timers->{$timer_name};
+    $self->assert(scalar(@$timings) > 0,
+      "Expected timing values for $timer_name, found none");
+  }
+
+  my $gauges = get_statsd_info('gauges');
+
+  # Our connection gauge is a GAUGE; we expect it to have the same value after
+  # as before.
+  $self->assert($gauges->{connection} == 0,
+    "Expected connection gauge 0, got $gauges->{connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }

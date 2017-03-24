@@ -97,17 +97,27 @@ MODRET set_statsdengine(cmd_rec *cmd) {
   return PR_HANDLED(cmd);
 }
 
-/* usage: StatsdServer host[:port] */
+/* usage: StatsdServer [scheme://]host[:port] */
 MODRET set_statsdserver(cmd_rec *cmd) {
   config_rec *c;
   char *server, *ptr;
   size_t server_len;
-  int port = STATSD_DEFAULT_PORT;
+  int port = STATSD_DEFAULT_PORT, use_tcp = FALSE;
 
   CHECK_ARGS(cmd, 1);
   CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL|CONF_GLOBAL);
 
   server = pstrdup(cmd->tmp_pool, cmd->argv[1]);
+
+  if (strncasecmp(server, "tcp://", 6) == 0) {
+    use_tcp = TRUE;
+    server += 6;
+
+  } else if (strncasecmp(server, "udp://", 6) == 0) {
+    use_tcp = FALSE;
+    server += 6;
+  }
+
   server_len = strlen(server);
 
   ptr = strrchr(server, ':');
@@ -136,10 +146,12 @@ MODRET set_statsdserver(cmd_rec *cmd) {
     }
   }
 
-  c = add_config_param(cmd->argv[0], 2, NULL, NULL);
+  c = add_config_param(cmd->argv[0], 3, NULL, NULL, NULL);
   c->argv[0] = pstrdup(c->pool, server);
   c->argv[1] = palloc(c->pool, sizeof(int));
   *((int *) c->argv[1]) = port;
+  c->argv[2] = pcalloc(c->pool, sizeof(int));
+  *((int *) c->argv[2]) = use_tcp;
 
   return PR_HANDLED(cmd);
 }
@@ -242,7 +254,7 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
 static int statsd_sess_init(void) {
   config_rec *c;
   char *host, *metric;
-  int port;
+  int port, use_tcp = FALSE;
   const pr_netaddr_t *addr;
 
   c = find_config(main_server->conf, CONF_PARAM, "StatsdEngine", FALSE);
@@ -274,11 +286,13 @@ static int statsd_sess_init(void) {
   port = *((int *) c->argv[1]);
   pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
 
-  statsd = statsd_statsd_open(session.pool, addr);
+  use_tcp = *((int *) c->argv[2]);
+
+  statsd = statsd_statsd_open(session.pool, addr, use_tcp);
   if (statsd == NULL) {
     pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
-      ": error opening statsd connection to %s:%d: %s", host, port,
-      strerror(errno));
+      ": error opening statsd connection to %s%s:%d: %s",
+      use_tcp ? "tcp://" : "udp://", host, port, strerror(errno));
     statsd_engine = FALSE;
     return 0;
   }
