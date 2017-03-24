@@ -33,14 +33,15 @@ struct statsd;
  *
  *  https://github.com/etsy/statsd/blob/master/docs/metric_types.md#multi-metric-packets
  *
- * We'll use a maximum packet size of 512 bytes, for interoperability.
+ * We'll use a maximum UDP packet size of 512 bytes, for interoperability.
  */
-#define STATSD_MAX_PACKET_SIZE		512
+#define STATSD_MAX_UDP_PACKET_SIZE		512
 
 /* The max length of a single metric is the same as the max packet size. */
-#define STATSD_MAX_METRIC_SIZE		STATSD_MAX_PACKET_SIZE
+#define STATSD_MAX_METRIC_SIZE			STATSD_MAX_UDP_PACKET_SIZE
 
-struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr);
+struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
+  int use_tcp);
 int statsd_statsd_close(struct statsd *statsd);
 
 int statsd_statsd_write(struct statsd *statsd, const char *metric,

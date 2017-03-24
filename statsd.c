@@ -30,17 +30,22 @@ struct statsd {
   const pr_netaddr_t *addr;
   int fd;
 
+  /* For knowing how to handle newlines in the metrics. */
+  int use_tcp;
+
   /* Pending metrics */
   pool *metrics_pool;
   char *metrics_buf;
   size_t metrics_buflen;
 };
 
+static int statsd_proto_tcp = IPPROTO_TCP;
 static int statsd_proto_udp = IPPROTO_UDP;
 
 static const char *trace_channel = "statsd.statsd";
 
-struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr) {
+struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
+    int use_tcp) {
   int family, fd, xerrno;
   pool *sub_pool;
   struct statsd *statsd;
@@ -52,14 +57,40 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr) {
   }
 
   family = pr_netaddr_get_family(addr);
-  fd = socket(family, SOCK_DGRAM, statsd_proto_udp);
+
+  if (use_tcp == TRUE) {
+    fd = socket(family, SOCK_STREAM, statsd_proto_tcp);
+
+  } else {
+    fd = socket(family, SOCK_DGRAM, statsd_proto_udp);
+  }
+
   xerrno = errno;
 
   if (fd < 0) {
-    pr_trace_msg(trace_channel, 1, "error opening %s UDP socket: %s",
-      family == AF_INET ? "IPv4" : "IPv6", strerror(xerrno));
+    pr_trace_msg(trace_channel, 1, "error opening %s %s socket: %s",
+      family == AF_INET ? "IPv4" : "IPv6", use_tcp ? "TCP" : "UDP",
+      strerror(xerrno));
     errno = xerrno;
     return NULL;
+  }
+
+  if (use_tcp == TRUE) {
+    int res;
+
+    res = connect(fd, pr_netaddr_get_sockaddr(addr),
+      pr_netaddr_get_sockaddr_len(addr));
+    xerrno = errno;
+
+    if (res < 0) {
+      pr_trace_msg(trace_channel, 1,
+        "error connecting %s TCP socket to %s:%d: %s",
+        family == AF_INET ? "IPv4" : "IPv6", pr_netaddr_get_ipstr(addr),
+        ntohs(pr_netaddr_get_port(addr)), strerror(xerrno));
+      (void) close(fd);
+      errno = xerrno;
+      return NULL;
+    }
   }
 
   sub_pool = make_sub_pool(p);
@@ -69,6 +100,7 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr) {
   statsd->pool = sub_pool;
   statsd->addr = addr;
   statsd->fd = fd;
+  statsd->use_tcp = use_tcp;
 
   return statsd;
 }
@@ -165,27 +197,50 @@ int statsd_statsd_write(struct statsd *statsd, const char *metric,
   pr_trace_msg(trace_channel, 19, "adding statsd metric: '%.*s'",
     (int) metric_len, metric);
 
-  /* Would this metric put us over the max packet size?  If so, flush the
-   * metrics now.
-   */
-  if (statsd->metrics_buf != NULL) {
-    if ((statsd->metrics_buflen + metric_len + 1) > STATSD_MAX_PACKET_SIZE) {
-      send_metrics(statsd, statsd->metrics_buf, statsd->metrics_buflen);
-      clear_metrics(statsd);
-    }
+  if (statsd->use_tcp == TRUE) {
+    /* When we have a TCP connection, there is no need/value in buffering
+     * the metrics into fewer packets.  Is there?
+     */
+    flags |= STATSD_STATSD_FL_SEND_NOW;
   }
 
-  if (statsd->metrics_buf != NULL) {
-    statsd->metrics_buf = pstrcat(statsd->metrics_pool, statsd->metrics_buf,
-      "\n", metric, NULL);
-    statsd->metrics_buflen += (metric_len + 1);
-
-  } else {
+  if (statsd->use_tcp == TRUE) {
+    /* No need to worry about existing buffered metrics; for TCP we will have
+     * sent them already.
+     */
     statsd->metrics_pool = make_sub_pool(statsd->pool);
     pr_pool_tag(statsd->metrics_pool, "Statsd buffered metrics pool");
 
-    statsd->metrics_buf = pstrndup(statsd->metrics_pool, metric, metric_len);
-    statsd->metrics_buflen = metric_len;
+    /* Note that we MUST add a newline for TCP-sent metrics; there are no
+     * packet boundaries (it's a stream, not a datagram) for delimiting.
+     */
+    statsd->metrics_buf = pstrcat(statsd->pool,
+      pstrndup(statsd->metrics_pool, metric, metric_len), "\n", NULL);
+    statsd->metrics_buflen = metric_len + 1;
+
+  } else {
+    /* Would this metric put us over the max packet size?  If so, flush the
+     * metrics now.
+     */
+    if (statsd->metrics_buf != NULL) {
+      if ((statsd->metrics_buflen + metric_len + 1) > STATSD_MAX_UDP_PACKET_SIZE) {
+        send_metrics(statsd, statsd->metrics_buf, statsd->metrics_buflen);
+        clear_metrics(statsd);
+      }
+    }
+
+    if (statsd->metrics_buf != NULL) {
+      statsd->metrics_buf = pstrcat(statsd->metrics_pool, statsd->metrics_buf,
+        "\n", metric, NULL);
+      statsd->metrics_buflen += (metric_len + 1);
+
+    } else {
+      statsd->metrics_pool = make_sub_pool(statsd->pool);
+      pr_pool_tag(statsd->metrics_pool, "Statsd buffered metrics pool");
+
+      statsd->metrics_buf = pstrndup(statsd->metrics_pool, metric, metric_len);
+      statsd->metrics_buflen = metric_len;
+    }
   }
 
   if (flags & STATSD_STATSD_FL_SEND_NOW) {
@@ -213,6 +268,11 @@ int statsd_statsd_init(void) {
 #ifdef HAVE_SETPROTOENT
   setprotoent(FALSE);
 #endif /* SETPROTOENT */
+
+  pre = getprotobyname("tcp");
+  if (pre != NULL) {
+    statsd_proto_tcp = pre->p_proto;
+  }
 
   pre = getprotobyname("udp");
   if (pre != NULL) {
