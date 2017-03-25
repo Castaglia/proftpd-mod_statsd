@@ -80,13 +80,13 @@ START_TEST (statsd_open_test) {
   struct statsd *statsd;
 
   mark_point();
-  statsd = statsd_statsd_open(NULL, NULL, FALSE);
+  statsd = statsd_statsd_open(NULL, NULL, FALSE, 0.0);
   fail_unless(statsd == NULL, "Failed to handle null pool");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
-  statsd = statsd_statsd_open(p, NULL, FALSE);
+  statsd = statsd_statsd_open(p, NULL, FALSE, -1.0);
   fail_unless(statsd == NULL, "Failed to handle null addr");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
@@ -94,14 +94,20 @@ START_TEST (statsd_open_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, -1.0);
+  fail_unless(statsd == NULL, "Failed to handle invalid sampling");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, TRUE);
+  statsd = statsd_statsd_open(p, addr, TRUE, 1.0);
 
   /* If statsd IS running, but is not configued for TCP, the "Connection
    * refused" error is expected.
@@ -130,13 +136,39 @@ START_TEST (statsd_get_pool_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   mark_point();
   res = statsd_statsd_get_pool(statsd);
   fail_unless(res != NULL, "Failed to get pool: %s", strerror(errno));
+
+  (void) statsd_statsd_close(statsd);
+}
+END_TEST
+
+START_TEST (statsd_get_sampling_test) {
+  float res;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_get_sampling(NULL);
+  fail_unless(res < 0.0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_get_sampling(statsd);
+  fail_unless(res >= 1.0, "Failed to get sampling: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 }
@@ -156,7 +188,7 @@ START_TEST (statsd_set_fd_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -182,7 +214,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -212,7 +244,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(45778);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -238,7 +270,7 @@ START_TEST (statsd_flush_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -270,6 +302,7 @@ Suite *tests_get_statsd_suite(void) {
   tcase_add_test(testcase, statsd_close_test);
   tcase_add_test(testcase, statsd_open_test);
   tcase_add_test(testcase, statsd_get_pool_test);
+  tcase_add_test(testcase, statsd_get_sampling_test);
   tcase_add_test(testcase, statsd_set_fd_test);
   tcase_add_test(testcase, statsd_write_test);
   tcase_add_test(testcase, statsd_flush_test);

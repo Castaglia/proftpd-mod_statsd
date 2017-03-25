@@ -75,7 +75,7 @@ START_TEST (metric_counter_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -112,7 +112,7 @@ START_TEST (metric_timer_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -157,7 +157,7 @@ START_TEST (metric_gauge_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 

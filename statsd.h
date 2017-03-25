@@ -41,7 +41,7 @@ struct statsd;
 #define STATSD_MAX_METRIC_SIZE			STATSD_MAX_UDP_PACKET_SIZE
 
 struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
-  int use_tcp);
+  int use_tcp, float sampling);
 int statsd_statsd_close(struct statsd *statsd);
 
 int statsd_statsd_write(struct statsd *statsd, const char *metric,
@@ -53,6 +53,9 @@ int statsd_statsd_flush(struct statsd *statsd);
 
 /* Returns a reference to pool used for the statsd client. */
 pool *statsd_statsd_get_pool(struct statsd *statsd);
+
+/* Returns the sampling percentage for the statsd client. */
+float statsd_statsd_get_sampling(struct statsd *statsd);
 
 /* This is for testing purposes. */
 int statsd_statsd_set_fd(struct statsd *statsd, int fd);
