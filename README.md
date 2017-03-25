@@ -4,6 +4,7 @@ proftpd-mod_statsd
 Status
 ------
 [![Build Status](https://travis-ci.org/Castaglia/proftpd-mod_statsd.svg?branch=master)](https://travis-ci.org/Castaglia/proftpd-mod_statsd)
+[![Coverage Status](https://coveralls.io/repos/github/Castaglia/proftpd-mod_statsd/badge.svg)](https://coveralls.io/github/Castaglia/proftpd-mod_statsd)
 [![License](https://img.shields.io/badge/license-GPL-brightgreen.svg)](https://img.shields.io/badge/license-GPL-brightgreen.svg)
 
 Synopsis
