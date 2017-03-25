@@ -33,9 +33,14 @@ extern xaset_t *server_list;
 
 module statsd_module;
 
-static int statsd_engine = FALSE;
-static float statsd_sampling = 1.0F;
+#define STATSD_DEFAULT_ENGINE			FALSE
+#define STATSD_DEFAULT_SAMPLING			1.0F
+
+static int statsd_engine = STATSD_DEFAULT_ENGINE;
+static float statsd_sampling = STATSD_DEFAULT_SAMPLING;
 static struct statsd *statsd = NULL;
+
+static int statsd_sess_init(void);
 
 static const char *trace_channel = "statsd";
 
@@ -320,6 +325,31 @@ static void statsd_postparse_ev(const void *event_data, void *user_data) {
   }
 }
 
+static void statsd_sess_reinit_ev(const void *event_data, void *user_data) {
+  int res;
+
+  /* A HOST command changed the main_server pointer; reinitialize ourselves. */
+
+  pr_event_unregister(&statsd_module, "core.exit", statsd_exit_ev);
+  pr_event_unregister(&statsd_module, "core.session-reinit",
+    statsd_sess_reinit_ev);
+
+  /* Reset internal state. */
+  statsd_engine = STATSD_DEFAULT_ENGINE;
+  statsd_sampling = STATSD_DEFAULT_SAMPLING;
+
+  if (statsd != NULL) {
+    statsd_statsd_close(statsd);
+    statsd = NULL;
+  }
+
+  res = statsd_sess_init();
+  if (res < 0) {
+    pr_session_disconnect(&statsd_module, PR_SESS_DISCONNECT_SESSION_INIT_FAILED,
+      NULL);
+  }
+}
+
 static void statsd_shutdown_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
     statsd_statsd_close(statsd);
@@ -367,6 +397,9 @@ static int statsd_sess_init(void) {
   char *host, *metric, *prefix = NULL, *suffix = NULL;
   int port, use_tcp = FALSE;
   const pr_netaddr_t *addr;
+
+  pr_event_register(&statsd_module, "core.session-reinit", statsd_sess_reinit_ev,
+    NULL);
 
   c = find_config(main_server->conf, CONF_PARAM, "StatsdEngine", FALSE);
   if (c != NULL) {
