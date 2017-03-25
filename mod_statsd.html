@@ -81,7 +81,7 @@ Example:
 
 <hr>
 <h3><a name="StatsdServer">StatsdServer</a></h3>
-<strong>Syntax:</strong> StatsdServer <em>[scheme://]address[:port]</em><br>
+<strong>Syntax:</strong> StatsdServer <em>[scheme://]address[:port] [prefix] [suffix]</em><br>
 <strong>Default:</strong> None<br>
 <strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
 <strong>Module:</strong> mod_statsd<br>
@@ -113,6 +113,23 @@ or, to explicitly declare that you want to use UDP:
 <pre>
   # Use UDP, with an IPv6 address
   StatsdServer udp://[::ffff:1.2.3.4]:8125
+</pre>
+
+<p>
+The <code>StatsdServer</code> directive also supports optional <em>prefix</em>
+and <em>suffix</em> values.  These are strings which will be used as prefixes
+and suffixes to the metric names.  For example:
+<pre>
+  StatsdServer udp://1.2.3.4:8125 proftpd.prod ftp03
+</pre>
+This will use the prefix "proftpd.prod", and the suffix "ftp03", to generate
+counter/timer metric names such as <code>proftpd.proftpd.command.PASS.230.ftp03</code>, instead of the default <code>command.PASS.230</code>.  Other examples:
+<pre>
+  # Use a prefix but no suffix for the metrics
+  StatsdServer udp://1.2.3.4:8125 proftpd.prod
+
+  # Use a suffix but no prefix for the metrics
+  StatsdServer udp://1.2.3.4:8125 "" ftp03
 </pre>
 
 <p>

@@ -144,14 +144,18 @@ MODRET set_statsdsampling(cmd_rec *cmd) {
   return PR_HANDLED(cmd);
 }
 
-/* usage: StatsdServer [scheme://]host[:port] */
+/* usage: StatsdServer [scheme://]host[:port] [prefix] [suffix] */
 MODRET set_statsdserver(cmd_rec *cmd) {
   config_rec *c;
   char *server, *ptr;
   size_t server_len;
   int port = STATSD_DEFAULT_PORT, use_tcp = FALSE;
 
-  CHECK_ARGS(cmd, 1);
+  if (cmd->argc < 2 ||
+      cmd->argc > 4) {
+    CONF_ERROR(cmd, "wrong number of parameters");
+  }
+
   CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL|CONF_GLOBAL);
 
   server = pstrdup(cmd->tmp_pool, cmd->argv[1]);
@@ -193,12 +197,36 @@ MODRET set_statsdserver(cmd_rec *cmd) {
     }
   }
 
-  c = add_config_param(cmd->argv[0], 3, NULL, NULL, NULL);
+  c = add_config_param(cmd->argv[0], 5, NULL, NULL, NULL, NULL, NULL);
   c->argv[0] = pstrdup(c->pool, server);
   c->argv[1] = palloc(c->pool, sizeof(int));
   *((int *) c->argv[1]) = port;
   c->argv[2] = pcalloc(c->pool, sizeof(int));
   *((int *) c->argv[2]) = use_tcp;
+
+  if (cmd->argc > 2) {
+    char *prefix;
+
+    prefix = cmd->argv[2];
+    if (*prefix) {
+      /* Automatically append a '.' here, to make construction of the metric
+       * name easier.
+       */
+      c->argv[3] = pstrcat(c->pool, prefix, ".", NULL);
+    }
+  }
+
+  if (cmd->argc == 4) {
+    char *suffix;
+
+    suffix = cmd->argv[3];
+    if (*suffix) {
+      /* Automatically prepend a '.' here, to make construction of the metric
+       * name easier.
+       */
+      c->argv[4] = pstrcat(c->pool, ".", suffix, NULL);
+    }
+  }
 
   return PR_HANDLED(cmd);
 }
@@ -300,7 +328,7 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
 
 static int statsd_sess_init(void) {
   config_rec *c;
-  char *host, *metric;
+  char *host, *metric, *prefix = NULL, *suffix = NULL;
   int port, use_tcp = FALSE;
   const pr_netaddr_t *addr;
 
@@ -334,8 +362,11 @@ static int statsd_sess_init(void) {
   pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
 
   use_tcp = *((int *) c->argv[2]);
+  prefix = c->argv[3];
+  suffix = c->argv[4];
 
-  statsd = statsd_statsd_open(session.pool, addr, use_tcp, statsd_sampling);
+  statsd = statsd_statsd_open(session.pool, addr, use_tcp, statsd_sampling,
+    prefix, suffix);
   if (statsd == NULL) {
     pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
       ": error opening statsd connection to %s%s:%d: %s",
