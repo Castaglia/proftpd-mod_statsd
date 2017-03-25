@@ -43,8 +43,6 @@ static char *get_cmd_metric(pool *p, const char *cmd) {
   const char *resp_code = NULL;
   char *metric;
 
-  /* [${prefix}.]command.${cmd}.${respcode}[.${suffix}] */
-
   if (strcasecmp(cmd, C_QUIT) != 0) {
     int res;
 
@@ -63,8 +61,14 @@ static char *get_cmd_metric(pool *p, const char *cmd) {
 }
 
 static char *get_conn_metric(pool *p) {
-  /* [${prefix}.]connection[.${suffix}] */
   return pstrdup(p, "connection");
+}
+
+static char *get_timeout_metric(pool *p, const char *timeout) {
+  char *metric;
+
+  metric = pstrcat(p, "timeout.", timeout, NULL);
+  return metric;
 }
 
 static int should_sample(float sampling) {
@@ -323,6 +327,38 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
   }
 }
 
+static void incr_timeout_metric(pool *p, const char *name) {
+  char *metric;
+
+  /* Unlike other common metrics, for now the timeout counters are NOT subject
+   * to the sampling frequency.
+   */
+
+  metric = get_timeout_metric(p, name);
+  statsd_metric_counter(statsd, metric, 1);
+  statsd_statsd_flush(statsd);
+}
+
+static void statsd_timeout_idle_ev(const void *event_data, void *user_data) {
+  incr_timeout_metric(session.pool, "TimeoutIdle");
+}
+
+static void statsd_timeout_login_ev(const void *event_data, void *user_data) {
+  incr_timeout_metric(session.pool, "TimeoutLogin");
+}
+
+static void statsd_timeout_noxfer_ev(const void *event_data, void *user_data) {
+  incr_timeout_metric(session.pool, "TimeoutNoTransfer");
+}
+
+static void statsd_timeout_session_ev(const void *event_data, void *user_data) {
+  incr_timeout_metric(session.pool, "TimeoutSession");
+}
+
+static void statsd_timeout_stalled_ev(const void *event_data, void *user_data) {
+  incr_timeout_metric(session.pool, "TimeoutStalled");
+}
+
 /* Initialization functions
  */
 
@@ -391,6 +427,20 @@ static int statsd_sess_init(void) {
   statsd_statsd_flush(statsd);
 
   pr_event_register(&statsd_module, "core.exit", statsd_exit_ev, NULL);
+
+  pr_event_register(&statsd_module, "core.timeout-idle",
+    statsd_timeout_idle_ev, NULL);
+  pr_event_register(&statsd_module, "core.timeout-login",
+    statsd_timeout_login_ev, NULL);
+  pr_event_register(&statsd_module, "core.timeout-no-transfer",
+    statsd_timeout_noxfer_ev, NULL);
+  pr_event_register(&statsd_module, "core.timeout-session",
+    statsd_timeout_session_ev, NULL);
+  pr_event_register(&statsd_module, "core.timeout-stalled",
+    statsd_timeout_stalled_ev, NULL);
+
+/* XXX What about other modules' timeouts?  TLSTimeoutHandshake? */
+
   return 0;
 }
 
