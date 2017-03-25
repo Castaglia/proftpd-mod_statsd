@@ -80,13 +80,13 @@ START_TEST (statsd_open_test) {
   struct statsd *statsd;
 
   mark_point();
-  statsd = statsd_statsd_open(NULL, NULL, FALSE, 0.0);
+  statsd = statsd_statsd_open(NULL, NULL, FALSE, 0.0, NULL, NULL);
   fail_unless(statsd == NULL, "Failed to handle null pool");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
-  statsd = statsd_statsd_open(p, NULL, FALSE, -1.0);
+  statsd = statsd_statsd_open(p, NULL, FALSE, -1.0, NULL, NULL);
   fail_unless(statsd == NULL, "Failed to handle null addr");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
@@ -94,20 +94,20 @@ START_TEST (statsd_open_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, -1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, -1.0, NULL, NULL);
   fail_unless(statsd == NULL, "Failed to handle invalid sampling");
   fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, TRUE, 1.0);
+  statsd = statsd_statsd_open(p, addr, TRUE, 1.0, NULL, NULL);
 
   /* If statsd IS running, but is not configued for TCP, the "Connection
    * refused" error is expected.
@@ -119,6 +119,76 @@ START_TEST (statsd_open_test) {
   } else {
     (void) statsd_statsd_close(statsd);
   }
+}
+END_TEST
+
+START_TEST (statsd_get_namespacing_test) {
+  int res;
+  const char *prefix, *suffix;
+  const pr_netaddr_t *addr;
+  struct statsd *statsd;
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(NULL, NULL, NULL);
+  fail_unless(res < 0, "Failed to handle null statsd");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  addr = statsd_addr(STATSD_DEFAULT_PORT);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(statsd, NULL, NULL);
+  fail_unless(res < 0, "Failed to handle null prefix AND suffix");
+  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+    strerror(errno), errno);
+
+  prefix = suffix = NULL;
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(statsd, &prefix, &suffix);
+  fail_unless(res == 0, "Failed to get namespacing: %s", strerror(errno));
+  fail_unless(prefix == NULL, "Got prefix %s unexpectedly", prefix);
+  fail_unless(suffix == NULL, "Got suffix %s unexpectedly", suffix);
+
+  (void) statsd_statsd_close(statsd);
+
+  mark_point();
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, "foo", "bar");
+  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+    strerror(errno));
+
+  prefix = suffix = NULL;
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(statsd, &prefix, &suffix);
+  fail_unless(res == 0, "Failed to get namespacing: %s", strerror(errno));
+  fail_unless(prefix != NULL, "Expected prefix, got null");
+  fail_unless(strcmp(prefix, "foo") == 0, "Expected 'foo', got '%s'", prefix);
+  fail_unless(suffix != NULL, "Expected suffix, got null");
+  fail_unless(strcmp(suffix, "bar") == 0, "Expected 'bar', got '%s'", suffix);
+
+  prefix = suffix = NULL;
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(statsd, &prefix, NULL);
+  fail_unless(res == 0, "Failed to get namespacing: %s", strerror(errno));
+  fail_unless(prefix != NULL, "Expected prefix, got null");
+  fail_unless(strcmp(prefix, "foo") == 0, "Expected 'foo', got '%s'", prefix);
+
+  prefix = suffix = NULL;
+
+  mark_point();
+  res = statsd_statsd_get_namespacing(statsd, NULL, &suffix);
+  fail_unless(res == 0, "Failed to get namespacing: %s", strerror(errno));
+  fail_unless(suffix != NULL, "Expected suffix, got null");
+  fail_unless(strcmp(suffix, "bar") == 0, "Expected 'bar', got '%s'", suffix);
+
+  (void) statsd_statsd_close(statsd);
 }
 END_TEST
 
@@ -136,7 +206,7 @@ START_TEST (statsd_get_pool_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -162,7 +232,7 @@ START_TEST (statsd_get_sampling_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -188,7 +258,7 @@ START_TEST (statsd_set_fd_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -214,7 +284,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -244,7 +314,7 @@ START_TEST (statsd_write_test) {
   addr = statsd_addr(45778);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -270,7 +340,7 @@ START_TEST (statsd_flush_test) {
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
-  statsd = statsd_statsd_open(p, addr, FALSE, 1.0);
+  statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
   fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
@@ -301,6 +371,7 @@ Suite *tests_get_statsd_suite(void) {
 
   tcase_add_test(testcase, statsd_close_test);
   tcase_add_test(testcase, statsd_open_test);
+  tcase_add_test(testcase, statsd_get_namespacing_test);
   tcase_add_test(testcase, statsd_get_pool_test);
   tcase_add_test(testcase, statsd_get_sampling_test);
   tcase_add_test(testcase, statsd_set_fd_test);

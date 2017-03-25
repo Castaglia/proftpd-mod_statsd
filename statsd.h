@@ -41,7 +41,7 @@ struct statsd;
 #define STATSD_MAX_METRIC_SIZE			STATSD_MAX_UDP_PACKET_SIZE
 
 struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
-  int use_tcp, float sampling);
+  int use_tcp, float sampling, const char *prefix, const char *suffix);
 int statsd_statsd_close(struct statsd *statsd);
 
 int statsd_statsd_write(struct statsd *statsd, const char *metric,
@@ -50,6 +50,12 @@ int statsd_statsd_write(struct statsd *statsd, const char *metric,
 
 /* Flush any buffered pending metrics */
 int statsd_statsd_flush(struct statsd *statsd);
+
+/* Returns a reference to the prefix/suffix labels, if any, for this statsd
+ * client.
+ */
+int statsd_statsd_get_namespacing(struct statsd *statsd, const char **prefix,
+  const char **suffix);
 
 /* Returns a reference to pool used for the statsd client. */
 pool *statsd_statsd_get_pool(struct statsd *statsd);

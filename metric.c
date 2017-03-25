@@ -56,9 +56,11 @@ static int write_metric(struct statsd *statsd, const char *metric_type,
     const char *name, const char *val_prefix, int64_t val, float sampling) {
   int res, xerrno;
   pool *p, *tmp_pool;
+  const char *prefix = NULL, *suffix = NULL;
   char *metric;
   size_t metric_len;
 
+  statsd_statsd_get_namespacing(statsd, &prefix, &suffix);
   p = statsd_statsd_get_pool(statsd);
   tmp_pool = make_sub_pool(p);
 
@@ -66,12 +68,14 @@ static int write_metric(struct statsd *statsd, const char *metric_type,
   metric = pcalloc(tmp_pool, metric_len);
 
   if (sampling >= 1.0) {
-    res = snprintf(metric, metric_len-1, "%s:%s%lld|%s",
-      sanitize_name(tmp_pool, name), val_prefix, (long long) val, metric_type);
+    res = snprintf(metric, metric_len-1, "%s%s%s:%s%lld|%s",
+      prefix != NULL ? prefix : "", sanitize_name(tmp_pool, name),
+      suffix != NULL ? suffix : "", val_prefix, (long long) val, metric_type);
 
   } else {
-    res = snprintf(metric, metric_len-1, "%s:%s%lld|%s|@%.2f",
-      sanitize_name(tmp_pool, name), val_prefix, (long long) val, metric_type,
+    res = snprintf(metric, metric_len-1, "%s%s%s:%s%lld|%s|@%.2f",
+      prefix != NULL ? prefix : "", sanitize_name(tmp_pool, name),
+      suffix != NULL ? suffix : "", val_prefix, (long long) val, metric_type,
       sampling);
   }
 

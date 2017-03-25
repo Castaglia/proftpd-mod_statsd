@@ -36,6 +36,10 @@ struct statsd {
   /* Sampling */
   float sampling;
 
+  /* Namespacing */
+  const char *prefix;
+  const char *suffix;
+
   /* Pending metrics */
   pool *metrics_pool;
   char *metrics_buf;
@@ -48,7 +52,7 @@ static int statsd_proto_udp = IPPROTO_UDP;
 static const char *trace_channel = "statsd.statsd";
 
 struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
-    int use_tcp, float sampling) {
+    int use_tcp, float sampling, const char *prefix, const char *suffix) {
   int family, fd, xerrno;
   pool *sub_pool;
   struct statsd *statsd;
@@ -112,6 +116,14 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
   statsd->use_tcp = use_tcp;
   statsd->sampling = sampling;
 
+  if (prefix != NULL) {
+    statsd->prefix = pstrdup(statsd->pool, prefix);
+  }
+
+  if (suffix != NULL) {
+    statsd->suffix = pstrdup(statsd->pool, suffix);
+  }
+
   return statsd;
 }
 
@@ -126,6 +138,31 @@ int statsd_statsd_close(struct statsd *statsd) {
 
   (void) close(statsd->fd);
   destroy_pool(statsd->pool);
+
+  return 0;
+}
+
+int statsd_statsd_get_namespacing(struct statsd *statsd, const char **prefix,
+    const char **suffix) {
+
+  if (statsd == NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if (prefix == NULL &&
+      suffix == NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if (prefix != NULL) {
+    *prefix = statsd->prefix;
+  }
+
+  if (suffix != NULL) {
+    *suffix = statsd->suffix;
+  }
 
   return 0;
 }
