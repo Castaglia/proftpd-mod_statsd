@@ -34,6 +34,7 @@ extern xaset_t *server_list;
 module statsd_module;
 
 static int statsd_engine = FALSE;
+static float statsd_sampling = 1.0F;
 static struct statsd *statsd = NULL;
 
 static const char *trace_channel = "statsd";
@@ -66,10 +67,24 @@ static char *get_conn_metric(pool *p) {
   return pstrdup(p, "connection");
 }
 
-static int should_sample(void) {
-  /* XXX Eventually this will use some calculation to determine whether
-   * we're within a sampling window/rate.
-   */
+static int should_sample(float sampling) {
+  float p;
+
+  if (sampling >= 1.0) {
+    return TRUE;
+  }
+
+#ifdef HAVE_RANDOM
+  p = ((float) random() / RAND_MAX);
+#else
+  p = ((float) rand() / RAND_MAX);
+#endif /* HAVE_RANDOM */
+
+  pr_trace_msg(trace_channel, 19, "sampling: p = %f, sample percentage = %f", p, 
+    sampling);
+  if (p > sampling) {
+    return FALSE;
+  }
 
   return TRUE;
 }
@@ -93,6 +108,38 @@ MODRET set_statsdengine(cmd_rec *cmd) {
   c = add_config_param(cmd->argv[0], 1, NULL);
   c->argv[0] = palloc(c->pool, sizeof(int));
   *((int *) c->argv[0]) = engine;
+
+  return PR_HANDLED(cmd);
+}
+
+/* usage: StatsdSampling percentage */
+MODRET set_statsdsampling(cmd_rec *cmd) {
+  config_rec *c;
+  char *ptr = NULL;
+  float percentage, sampling;
+
+  CHECK_ARGS(cmd, 1);
+  CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL|CONF_GLOBAL);
+
+  percentage = strtof(cmd->argv[1], &ptr);
+  if (ptr && *ptr) {
+    CONF_ERROR(cmd, pstrcat(cmd->tmp_pool, "badly formatted percentage value: ",
+      cmd->argv[1], NULL));
+  }
+
+  if (percentage <= 0.0 ||
+      percentage > 100.0) {
+    CONF_ERROR(cmd, "percentage must be between 0 and 100");
+  }
+
+  /* For easier comparison with e.g. random(3) values, and for formatting
+   * the statsd metric values, we convert from a 1-100 value to 0.00-1.00.
+   */
+  sampling = percentage / 100.0;
+
+  c = add_config_param(cmd->argv[0], 1, NULL);
+  c->argv[0] = palloc(c->pool, sizeof(float));
+  *((float *) c->argv[0]) = sampling;
 
   return PR_HANDLED(cmd);
 }
@@ -167,7 +214,7 @@ MODRET statsd_log_any(cmd_rec *cmd) {
     return PR_DECLINED(cmd);
   }
 
-  if (should_sample() != TRUE) {
+  if (should_sample(statsd_sampling) != TRUE) {
     pr_trace_msg(trace_channel, 28, "skipping sampling of metric for '%s'",
       (char *) cmd->argv[0]);
     return PR_DECLINED(cmd);
@@ -288,13 +335,24 @@ static int statsd_sess_init(void) {
 
   use_tcp = *((int *) c->argv[2]);
 
-  statsd = statsd_statsd_open(session.pool, addr, use_tcp);
+  statsd = statsd_statsd_open(session.pool, addr, use_tcp, statsd_sampling);
   if (statsd == NULL) {
     pr_log_pri(PR_LOG_NOTICE, MOD_STATSD_VERSION
       ": error opening statsd connection to %s%s:%d: %s",
       use_tcp ? "tcp://" : "udp://", host, port, strerror(errno));
     statsd_engine = FALSE;
     return 0;
+  }
+
+#ifdef HAVE_SRANDOM
+  srandom((unsigned int) (time(NULL) ^ getpid()));
+#else
+  srand((unsigned int) (time(NULL) ^ getpid()));
+#endif /* HAVE_SRANDOM */
+
+  c = find_config(main_server->conf, CONF_PARAM, "StatsdSampling", FALSE);
+  if (c != NULL) {
+    statsd_sampling = *((float *) c->argv[0]);
   }
 
   metric = get_conn_metric(session.pool);
@@ -323,6 +381,7 @@ static int statsd_init(void) {
 
 static conftable statsd_conftab[] = {
   { "StatsdEngine",	set_statsdengine,	NULL },
+  { "StatsdSampling",	set_statsdsampling,	NULL },
   { "StatsdServer",	set_statsdserver,	NULL },
   { NULL }
 };

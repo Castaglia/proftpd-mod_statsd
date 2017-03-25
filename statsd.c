@@ -33,6 +33,9 @@ struct statsd {
   /* For knowing how to handle newlines in the metrics. */
   int use_tcp;
 
+  /* Sampling */
+  float sampling;
+
   /* Pending metrics */
   pool *metrics_pool;
   char *metrics_buf;
@@ -45,13 +48,19 @@ static int statsd_proto_udp = IPPROTO_UDP;
 static const char *trace_channel = "statsd.statsd";
 
 struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
-    int use_tcp) {
+    int use_tcp, float sampling) {
   int family, fd, xerrno;
   pool *sub_pool;
   struct statsd *statsd;
 
   if (p == NULL ||
       addr == NULL) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  if (sampling < 0.0 ||
+      sampling > 1.0) {
     errno = EINVAL;
     return NULL;
   }
@@ -101,6 +110,7 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
   statsd->addr = addr;
   statsd->fd = fd;
   statsd->use_tcp = use_tcp;
+  statsd->sampling = sampling;
 
   return statsd;
 }
@@ -127,6 +137,15 @@ pool *statsd_statsd_get_pool(struct statsd *statsd) {
   }
 
   return statsd->pool;
+}
+
+float statsd_statsd_get_sampling(struct statsd *statsd) {
+  if (statsd == NULL) {
+    errno = EINVAL;
+    return -1.0;
+  }
+
+  return statsd->sampling;
 }
 
 int statsd_statsd_set_fd(struct statsd *statsd, int fd) {

@@ -53,7 +53,7 @@ static char *sanitize_name(pool *p, const char *name) {
 }
 
 static int write_metric(struct statsd *statsd, const char *metric_type,
-    const char *name, const char *val_prefix, int64_t val) {
+    const char *name, const char *val_prefix, int64_t val, float sampling) {
   int res, xerrno;
   pool *p, *tmp_pool;
   char *metric;
@@ -65,8 +65,15 @@ static int write_metric(struct statsd *statsd, const char *metric_type,
   metric_len = STATSD_MAX_METRIC_SIZE;
   metric = pcalloc(tmp_pool, metric_len);
 
-  res = snprintf(metric, metric_len-1, "%s:%s%lld|%s",
-    sanitize_name(tmp_pool, name), val_prefix, (long long) val, metric_type);
+  if (sampling >= 1.0) {
+    res = snprintf(metric, metric_len-1, "%s:%s%lld|%s",
+      sanitize_name(tmp_pool, name), val_prefix, (long long) val, metric_type);
+
+  } else {
+    res = snprintf(metric, metric_len-1, "%s:%s%lld|%s|@%.2f",
+      sanitize_name(tmp_pool, name), val_prefix, (long long) val, metric_type,
+      sampling);
+  }
 
   res = statsd_statsd_write(statsd, metric, res, 0);
   xerrno = errno;
@@ -79,16 +86,21 @@ static int write_metric(struct statsd *statsd, const char *metric_type,
 
 int statsd_metric_counter(struct statsd *statsd, const char *name,
     int64_t incr) {
+  float sampling;
+
   if (statsd == NULL ||
       name == NULL) {
     errno = EINVAL;
     return -1;
   }
 
-  return write_metric(statsd, "c", name, "", incr);
+  sampling = statsd_statsd_get_sampling(statsd);
+  return write_metric(statsd, "c", name, "", incr, sampling);
 }
 
 int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms) {
+  float sampling;
+
   if (statsd == NULL ||
       name == NULL) {
     errno = EINVAL;
@@ -101,7 +113,8 @@ int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms) {
     ms = STATSD_MAX_TIME_MS;
   }
 
-  return write_metric(statsd, "ms", name, "", ms);
+  sampling = statsd_statsd_get_sampling(statsd);
+  return write_metric(statsd, "ms", name, "", ms, sampling);
 }
 
 int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
@@ -130,5 +143,5 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
     }
   }
 
-  return write_metric(statsd, "g", name, val_prefix, val);
+  return write_metric(statsd, "g", name, val_prefix, val, 1.0);
 }
