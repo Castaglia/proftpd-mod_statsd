@@ -323,18 +323,18 @@ static void log_tls_auth_metrics(cmd_rec *cmd, uint64_t now_ms) {
   char *handshake_metric, *proto_metric, *protocol_env, *cipher_env;
 
   handshake_metric = get_tls_metric(cmd->tmp_pool, "handshake.ctrl");
-  statsd_metric_counter(statsd, handshake_metric, 1);
+  statsd_metric_counter(statsd, handshake_metric, 1, 0);
 
   proto_metric = get_conn_metric(cmd->tmp_pool, "ftps");
-  statsd_metric_counter(statsd, proto_metric, 1);
-  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_metric_counter(statsd, proto_metric, 1, 0);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
 
   start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
   if (start_ms != NULL) {
     uint64_t handshake_ms;
 
     handshake_ms = now_ms - *start_ms;
-    statsd_metric_timer(statsd, handshake_metric, handshake_ms);
+    statsd_metric_timer(statsd, handshake_metric, handshake_ms, 0);
   }
 
   cipher_env = pr_env_get(cmd->tmp_pool, "TLS_CIPHER");
@@ -343,7 +343,7 @@ static void log_tls_auth_metrics(cmd_rec *cmd, uint64_t now_ms) {
 
     cipher_metric = get_tls_metric(cmd->tmp_pool,
       pstrcat(cmd->tmp_pool, "cipher.", cipher_env, NULL));
-    statsd_metric_counter(statsd, cipher_metric, 1);
+    statsd_metric_counter(statsd, cipher_metric, 1, 0);
   }
 
   protocol_env = pr_env_get(cmd->tmp_pool, "TLS_PROTOCOL");
@@ -352,7 +352,7 @@ static void log_tls_auth_metrics(cmd_rec *cmd, uint64_t now_ms) {
 
     protocol_metric = get_tls_metric(cmd->tmp_pool,
       pstrcat(cmd->tmp_pool, "protocol.", protocol_env, NULL));
-    statsd_metric_counter(statsd, protocol_metric, 1);
+    statsd_metric_counter(statsd, protocol_metric, 1, 0);
   }
 }
 
@@ -407,14 +407,14 @@ static void log_cmd_metrics(cmd_rec *cmd, int had_error) {
   }
 
   metric = get_cmd_metric(cmd->tmp_pool, cmd->argv[0]);
-  statsd_metric_counter(statsd, metric, 1);
+  statsd_metric_counter(statsd, metric, 1, 0);
 
   start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
   if (start_ms != NULL) {
     uint64_t response_ms;
 
     response_ms = now_ms - *start_ms;
-    statsd_metric_timer(statsd, metric, response_ms);
+    statsd_metric_timer(statsd, metric, response_ms, 0);
   }
 
   log_tls_metrics(cmd, had_error, now_ms);
@@ -431,8 +431,8 @@ static void log_cmd_metrics(cmd_rec *cmd, int had_error) {
        * connection, not FTPS or SFTP or anything else.
        */
       proto_metric = get_conn_metric(cmd->tmp_pool, "ftp");
-      statsd_metric_counter(statsd, proto_metric, 1);
-      statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+      statsd_metric_counter(statsd, proto_metric, 1, 0);
+      statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
     }
   }
 
@@ -459,15 +459,15 @@ static void statsd_exit_ev(const void *event_data, void *user_data) {
     uint64_t now_ms = 0, sess_ms;
 
     metric = get_conn_metric(session.pool, NULL);
-    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
 
     proto = pr_session_get_protocol(0);
     metric = get_conn_metric(session.pool, proto);
-    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
 
     pr_gettimeofday_millis(&now_ms);
     sess_ms = now_ms - statsd_sess_start_ms;
-    statsd_metric_timer(statsd, metric, sess_ms);
+    statsd_metric_timer(statsd, metric, sess_ms, 0);
 
     statsd_statsd_close(statsd);
     statsd = NULL;
@@ -556,8 +556,8 @@ static void statsd_ssh2_sftp_sess_opened_ev(const void *event_data,
 
   tmp_pool = make_sub_pool(session.pool);
   proto_metric = get_conn_metric(tmp_pool, "sftp");
-  statsd_metric_counter(statsd, proto_metric, 1);
-  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_metric_counter(statsd, proto_metric, 1, 0);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
   statsd_statsd_flush(statsd);
   destroy_pool(tmp_pool);
 }
@@ -573,8 +573,8 @@ static void statsd_ssh2_scp_sess_opened_ev(const void *event_data,
 
   tmp_pool = make_sub_pool(session.pool);
   proto_metric = get_conn_metric(tmp_pool, "scp");
-  statsd_metric_counter(statsd, proto_metric, 1);
-  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_metric_counter(statsd, proto_metric, 1, 0);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
   statsd_statsd_flush(statsd);
   destroy_pool(tmp_pool);
 }
@@ -589,7 +589,7 @@ static void incr_timeout_metric(const char *name) {
 
   tmp_pool = make_sub_pool(session.pool);
   metric = get_timeout_metric(tmp_pool, name);
-  statsd_metric_counter(statsd, metric, 1);
+  statsd_metric_counter(statsd, metric, 1, STATSD_METRIC_FL_IGNORE_SAMPLING);
   statsd_statsd_flush(statsd);
   destroy_pool(tmp_pool);
 }
@@ -625,7 +625,7 @@ static void incr_tls_handshake_error_metric(const char *name) {
    */
 
   metric = get_tls_metric(tmp_pool, name);
-  statsd_metric_counter(statsd, metric, 1);
+  statsd_metric_counter(statsd, metric, 1, STATSD_METRIC_FL_IGNORE_SAMPLING);
   statsd_statsd_flush(statsd);
   destroy_pool(tmp_pool);
 }
@@ -714,7 +714,7 @@ static int statsd_sess_init(void) {
   }
 
   metric = get_conn_metric(session.pool, NULL);
-  statsd_metric_gauge(statsd, metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_metric_gauge(statsd, metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
   statsd_statsd_flush(statsd);
 
   pr_event_register(&statsd_module, "core.exit", statsd_exit_ev, NULL);

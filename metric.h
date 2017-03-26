@@ -28,14 +28,21 @@
 #include "mod_statsd.h"
 #include "statsd.h"
 
-int statsd_metric_counter(struct statsd *statsd, const char *name, int64_t incr);
-int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms);
+int statsd_metric_counter(struct statsd *statsd, const char *name, int64_t incr,
+  int flags);
+int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms,
+  int flags);
 int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
   int flags);
 
 /* Use this flag, for a gauge, for adjusting the existing gauge value, rather
  * that setting it.
  */
-#define STATSD_METRIC_GAUGE_FL_ADJUST		0x0001
+#define STATSD_METRIC_FL_GAUGE_ADJUST		0x0001
+
+/* Usage this flag to indicate that the metric is NOT subject to the sampling
+ * frequency.
+ */
+#define STATSD_METRIC_FL_IGNORE_SAMPLING	0x0002
 
 #endif /* MOD_STATSD_METRIC_H */

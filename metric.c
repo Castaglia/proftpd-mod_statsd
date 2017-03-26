@@ -89,7 +89,7 @@ static int write_metric(struct statsd *statsd, const char *metric_type,
 }
 
 int statsd_metric_counter(struct statsd *statsd, const char *name,
-    int64_t incr) {
+    int64_t incr, int flags) {
   float sampling;
 
   if (statsd == NULL ||
@@ -98,11 +98,18 @@ int statsd_metric_counter(struct statsd *statsd, const char *name,
     return -1;
   }
 
-  sampling = statsd_statsd_get_sampling(statsd);
+  if (flags & STATSD_METRIC_FL_IGNORE_SAMPLING) {
+    sampling = 1.0;
+
+  } else {
+    sampling = statsd_statsd_get_sampling(statsd);
+  }
+
   return write_metric(statsd, "c", name, "", incr, sampling);
 }
 
-int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms) {
+int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms,
+    int flags) {
   float sampling;
 
   if (statsd == NULL ||
@@ -117,7 +124,13 @@ int statsd_metric_timer(struct statsd *statsd, const char *name, uint64_t ms) {
     ms = STATSD_MAX_TIME_MS;
   }
 
-  sampling = statsd_statsd_get_sampling(statsd);
+  if (flags & STATSD_METRIC_FL_IGNORE_SAMPLING) {
+    sampling = 1.0;
+
+  } else {
+    sampling = statsd_statsd_get_sampling(statsd);
+  }
+
   return write_metric(statsd, "ms", name, "", ms, sampling);
 }
 
@@ -133,7 +146,7 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
 
   val_prefix = "";
 
-  if (flags & STATSD_METRIC_GAUGE_FL_ADJUST) {
+  if (flags & STATSD_METRIC_FL_GAUGE_ADJUST) {
     if (val > 0) {
       val_prefix = "+";
     }
@@ -147,5 +160,8 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
     }
   }
 
+  /* Unlikes counters and timers, gauges are NOT subject to sampling frequency;
+   * the statsd protocol does not allow for this, and rightly so.
+   */
   return write_metric(statsd, "g", name, val_prefix, val, 1.0);
 }
