@@ -37,6 +37,10 @@ module statsd_module;
 #define STATSD_DEFAULT_SAMPLING			1.0F
 
 static int statsd_engine = STATSD_DEFAULT_ENGINE;
+static const char *statsd_exclude_filter = NULL;
+#ifdef PR_USE_REGEX
+static pr_regex_t *statsd_exclude_pre = NULL;
+#endif /* PR_USE_REGEX */
 static float statsd_sampling = STATSD_DEFAULT_SAMPLING;
 static struct statsd *statsd = NULL;
 
@@ -74,6 +78,19 @@ static char *get_timeout_metric(pool *p, const char *timeout) {
 
   metric = pstrcat(p, "timeout.", timeout, NULL);
   return metric;
+}
+
+static int should_exclude(cmd_rec *cmd) {
+  int exclude = FALSE;
+
+#ifdef PR_USE_REGEX
+  if (pr_regexp_exec(statsd_exclude_pre, (char *) cmd->argv[0], 0, NULL, 0, 0,
+      0) == 0) {
+    exclude = TRUE;
+  }
+#endif /* PR_USE_REGEX */
+
+  return exclude;
 }
 
 static int should_sample(float sampling) {
@@ -119,6 +136,47 @@ MODRET set_statsdengine(cmd_rec *cmd) {
   *((int *) c->argv[0]) = engine;
 
   return PR_HANDLED(cmd);
+}
+
+/* usage: StatsdExcludeFilter regex|"none" */
+MODRET set_statsdexcludefilter(cmd_rec *cmd) {
+#ifdef PR_USE_REGEX
+  pr_regex_t *pre = NULL;
+  config_rec *c;
+  char *pattern;
+  int res;
+
+  CHECK_ARGS(cmd, 1);
+  CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL|CONF_GLOBAL);
+
+  if (strcasecmp(cmd->argv[1], "none") == 0) {
+    (void) add_config_param(cmd->argv[0], 0);
+    return PR_HANDLED(cmd);
+  }
+
+  pre = pr_regexp_alloc(&statsd_module);
+
+  pattern = cmd->argv[1];
+  res = pr_regexp_compile(pre, pattern, REG_EXTENDED|REG_NOSUB);
+  if (res != 0) {
+    char errstr[256] = {'\0'};
+
+    pr_regexp_error(res, pre, errstr, sizeof(errstr));
+    pr_regexp_free(NULL, pre);
+
+    CONF_ERROR(cmd, pstrcat(cmd->tmp_pool, "'", pattern,
+      "' failed regex compilation: ", errstr, NULL));
+  }
+
+  c = add_config_param(cmd->argv[0], 2, NULL, NULL);
+  c->argv[0] = pstrdup(c->pool, pattern);
+  c->argv[1] = (void *) pre;
+
+  return PR_HANDLED(cmd);
+#else
+  CONF_ERROR(cmd, "The StatsdExcludeFilter directive cannot be used on this "
+    "system, as you do not have POSIX compliant regex support");
+#endif
 }
 
 /* usage: StatsdSampling percentage */
@@ -251,6 +309,13 @@ MODRET statsd_log_any(cmd_rec *cmd) {
     return PR_DECLINED(cmd);
   }
 
+  if (should_exclude(cmd) == TRUE) {
+    pr_trace_msg(trace_channel, 9,
+      "command '%s' excluded by StatsdExcludeFilter '%s'", (char *) cmd->argv[0],
+      statsd_exclude_filter);
+    return PR_DECLINED(cmd);
+  }
+
   if (should_sample(statsd_sampling) != TRUE) {
     pr_trace_msg(trace_channel, 28, "skipping sampling of metric for '%s'",
       (char *) cmd->argv[0]);
@@ -336,6 +401,10 @@ static void statsd_sess_reinit_ev(const void *event_data, void *user_data) {
 
   /* Reset internal state. */
   statsd_engine = STATSD_DEFAULT_ENGINE;
+  statsd_exclude_filter = NULL;
+#ifdef PR_USE_REGEX
+  statsd_exclude_pre = NULL;
+#endif /* PR_USE_REGEX */
   statsd_sampling = STATSD_DEFAULT_SAMPLING;
 
   if (statsd != NULL) {
@@ -450,6 +519,13 @@ static int statsd_sess_init(void) {
   srand((unsigned int) (time(NULL) ^ getpid()));
 #endif /* HAVE_SRANDOM */
 
+  c = find_config(main_server->conf, CONF_PARAM, "StatsdExcludeFilter", FALSE);
+  if (c != NULL &&
+      c->argc == 2) {
+    statsd_exclude_filter = c->argv[0];
+    statsd_exclude_pre = c->argv[1];
+  }
+
   c = find_config(main_server->conf, CONF_PARAM, "StatsdSampling", FALSE);
   if (c != NULL) {
     statsd_sampling = *((float *) c->argv[0]);
@@ -494,9 +570,10 @@ static int statsd_init(void) {
  */
 
 static conftable statsd_conftab[] = {
-  { "StatsdEngine",	set_statsdengine,	NULL },
-  { "StatsdSampling",	set_statsdsampling,	NULL },
-  { "StatsdServer",	set_statsdserver,	NULL },
+  { "StatsdEngine",		set_statsdengine,		NULL },
+  { "StatsdExcludeFilter",	set_statsdexcludefilter,	NULL },
+  { "StatsdSampling",		set_statsdsampling,		NULL },
+  { "StatsdServer",		set_statsdserver,		NULL },
   { NULL }
 };
 
