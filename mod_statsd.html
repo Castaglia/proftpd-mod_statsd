@@ -37,6 +37,7 @@ questions, concerns, or suggestions regarding this module.
 <h2>Directives</h2>
 <ul>
   <li><a href="#StatsdEngine">StatsdEngine</a>
+  <li><a href="#StatsdExcludeFilter">StatsdExcludeFilter</a>
   <li><a href="#StatsdSampling">StatsdSampling</a>
   <li><a href="#StatsdServer">StatsdServer</a>
 </ul>
@@ -52,6 +53,26 @@ questions, concerns, or suggestions regarding this module.
 <p>
 The <code>StatsdEngine</code> directive enables or disables the emitting of
 metrics to the configured <code>statsd</code> server.
+
+<hr>
+<h3><a name="StatsdExcludeFilter">StatsdExcludeFilter</a></h3>
+<strong>Syntax:</strong> StatsdExcludeFilter <em>regex|"none"</em><br>
+<strong>Default:</strong> None<br>
+<strong>Context:</strong> server config, <code>&lt;VirtualHost&gt;</code>, <code>&lt;Global&gt;</code><br>
+<strong>Module:</strong> mod_statsd<br>
+<strong>Compatibility:</strong> 1.3.6rc1 and later
+
+<p>
+The <code>StatsdExcludeFilter</code> directive configures a regular expression
+filter that is applied to every command.  Any command which matches the configured
+regular expression will <b>not</b> be sampled by <code>mod_statsd</code>.
+
+<p>
+Example:
+<pre>
+  # Exclude SYST commands from our metrics
+  StatsdExcludeFilter ^SYST$
+</pre>
 
 <hr>
 <h3><a name="StatsdSampling">StatsdSampling</a></h3>
