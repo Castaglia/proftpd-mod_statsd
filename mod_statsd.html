@@ -192,6 +192,49 @@ Example configuration:
 </pre>
 
 <p>
+<b>Metrics</b><br>
+
+Note that the TLS-related metrics are only available when FTPS is used,
+<i>and</i> when the <code>StdEnvVars</code> <a href="http://www.proftpd.org/docs/contrib/mod_tls.html#TLSOptions"><code>TLSOption</code></a> is enabled:
+<pre>
+  TLSOptions StdEnvVar
+</pre>
+
+<p>
+Counters:
+<pre>
+  <i>command</i>.<i>response-code</i>
+  tls.handshake.ctrl
+  tls.hansdshake.ctrl.error
+  tls.hansdshake.data.error
+  tls.cipher.<i>cipher</i>
+</pre>
+Example:
+<pre>
+  USER.230
+  tls.cipher.ECDHE-RSA-AES128-SHA
+  tls.protocol.TLSv1
+</pre>
+
+<p>
+Timers:
+<pre>
+  <i>command</i>.<i>response-code</i>
+  tls.handshake.ctrl
+</pre>
+Example:
+<pre>
+  PASS.331
+  tls.handshake.ctrl
+</pre>
+
+<p>
+Gauges:
+<pre>
+  connection
+</pre>
+
+<p>
 <b>Logging</b><br>
 The <code>mod_statsd</code> module supports <a href="http://www.proftpd.org/docs/howto/Tracing.html">trace logging</a>, via the module-specific log channels:
 <ul>

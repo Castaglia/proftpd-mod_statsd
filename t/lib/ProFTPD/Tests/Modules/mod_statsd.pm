@@ -12,6 +12,7 @@ use Socket;
 
 use ProFTPD::TestSuite::FTP;
 use ProFTPD::TestSuite::Utils qw(:auth :config :running :test :testsuite);
+use ProFTPD::Tests::Modules::mod_statsd::mgmt qw(:admin);
 
 $| = 1;
 
@@ -108,87 +109,6 @@ sub list_tests {
   return testsuite_get_runnable_tests($TESTS);
 }
 
-sub statsd_mgmt {
-  my $port = $ENV{STATSD_MGMT_PORT};
-  my $opts = {
-    PeerHost => '127.0.0.1',
-    PeerPort => $port,
-    Proto => 'tcp',
-    Type => SOCK_STREAM,
-    Timeout => 3
-  };
-
-  my $client = IO::Socket::INET->new(%$opts);
-  unless ($client) {
-    croak("Can't connect to 127.0.0.1:$port: $!");
-  }
-
-  return $client;
-}
-
-sub statsd_cmd {
-  my $statsd = shift;
-  my $cmd = shift;
-
-  if ($ENV{TEST_DEBUG}) {
-    print STDERR "# Sending command: $cmd\n";
-  }
-
-  $statsd->print("$cmd\n");
-  $statsd->flush();
-
-  my $resp = '';
-
-  while (my $line = <$statsd>) {
-    chomp($line);
-
-    if ($ENV{TEST_DEBUG}) {
-      print STDERR "# Received response: '$line'\n";
-    }
-
-    last if $line eq 'END';
-    $resp .= $line;
-  }
-
-  return $resp;
-}
-
-sub delete_statsd_info {
-  my $statsd = statsd_mgmt();
-
-  my $cmd = "delcounters command.*";
-  statsd_cmd($statsd, $cmd);
-
-  $cmd = "deltimers command.*";
-  statsd_cmd($statsd, $cmd);
-
-  $cmd = "delgauges connections";
-  statsd_cmd($statsd, $cmd);
-
-  $statsd->close();
-  return 1;
-}
-
-sub get_statsd_info {
-  my $cmd = shift;
-
-  my $statsd = statsd_mgmt();
-  my $json = statsd_cmd($statsd, $cmd);
-  $statsd->close();
-
-  # statsd gives us (badly formatted) JSON; decode it into Perl.
-  $json =~ s/ (\S+): / '\1': /g;
-  $json =~ s/'{1,2}/\"/g;
-
-  if ($ENV{TEST_JSON}) {
-    print STDERR "# Received JSON: '$json'\n";
-  }
-
-  require JSON;
-  my $info = decode_json($json);
-  return $info;
-}
-
 sub statsd_engine {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
@@ -207,13 +127,13 @@ sub statsd_engine {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdServer => "127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -263,41 +183,46 @@ sub statsd_engine {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $self->assert($counts > 0,
-      "Expected count values for $counter_name, found none");
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $self->assert($counts > 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $self->assert(scalar(@$timings) > 0,
+        "Expected timing values for $timer_name, found none");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    $self->assert($gauges->{connection} == 0,
+      "Expected connection gauge 0, got $gauges->{Connection}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $self->assert(scalar(@$timings) > 0,
-      "Expected timing values for $timer_name, found none");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  $self->assert($gauges->{connection} == 0,
-    "Expected connection gauge 0, got $gauges->{Connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
@@ -320,13 +245,13 @@ sub statsd_server_udp {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdServer => "udp://127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -376,41 +301,46 @@ sub statsd_server_udp {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $self->assert($counts > 0,
-      "Expected count values for $counter_name, found none");
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $self->assert($counts > 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $self->assert(scalar(@$timings) > 0,
+        "Expected timing values for $timer_name, found none");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    $self->assert($gauges->{connection} == 0,
+      "Expected connection gauge 0, got $gauges->{connection}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $self->assert(scalar(@$timings) > 0,
-      "Expected timing values for $timer_name, found none");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  $self->assert($gauges->{connection} == 0,
-    "Expected connection gauge 0, got $gauges->{connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
@@ -433,13 +363,13 @@ sub statsd_server_tcp {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdServer => "tcp://127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -489,41 +419,46 @@ sub statsd_server_tcp {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $self->assert($counts > 0,
-      "Expected count values for $counter_name, found none");
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $self->assert($counts > 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $self->assert(scalar(@$timings) > 0,
+        "Expected timing values for $timer_name, found none");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    $self->assert($gauges->{connection} == 0,
+      "Expected connection gauge 0, got $gauges->{connection}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $self->assert(scalar(@$timings) > 0,
-      "Expected timing values for $timer_name, found none");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  $self->assert($gauges->{connection} == 0,
-    "Expected connection gauge 0, got $gauges->{connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
@@ -547,14 +482,14 @@ sub statsd_sampling {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdSampling => $sampling,
         StatsdServer => "udp://127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -604,48 +539,53 @@ sub statsd_sampling {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    if ($ENV{TEST_VERBOSE}) {
-      if ($counts > 0) {
-        print STDERR "# Sampling $sampling: got $counter_name counter = $counts\n";
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      if ($ENV{TEST_VERBOSE}) {
+        if ($counts > 0) {
+          print STDERR "# Sampling $sampling: got $counter_name counter = $counts\n";
+        }
       }
     }
-  }
 
-  my $timers = get_statsd_info('timers');
+    my $timers = get_statsd_info('timers');
 
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    if ($ENV{TEST_VERBOSE}) {
-      if ($timings &&
-          scalar(@$timings) > 0) {
-        print STDERR "# Sampling $sampling: got $timer_name timer\n";
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      if ($ENV{TEST_VERBOSE}) {
+        if ($timings &&
+            scalar(@$timings) > 0) {
+          print STDERR "# Sampling $sampling: got $timer_name timer\n";
+        }
       }
     }
-  }
 
-  my $gauges = get_statsd_info('gauges');
+    my $gauges = get_statsd_info('gauges');
 
-  if ($ENV{TEST_VERBOSE}) {
-    if (defined($gauges->{connection})) {
-      print STDERR "# Sampling $sampling: got connection gauge $gauges->{connection}\n";
+    if ($ENV{TEST_VERBOSE}) {
+      if (defined($gauges->{connection})) {
+        print STDERR "# Sampling $sampling: got connection gauge $gauges->{connection}\n";
+      }
     }
+  };
+  if ($@) {
+    $ex = $@;
   }
 
   test_cleanup($setup->{log_file}, $ex);
@@ -671,13 +611,13 @@ sub statsd_namespacing {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdServer => "udp://127.0.0.1:$statsd_port $prefix $suffix",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -727,42 +667,47 @@ sub statsd_namespacing {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [
-    "$prefix.command.USER.331.$suffix",
-    "$prefix.command.PASS.230.$suffix",
-    "$prefix.command.QUIT.221.$suffix"
-  ];
+    my $counter_names = [
+      "$prefix.command.USER.331.$suffix",
+      "$prefix.command.PASS.230.$suffix",
+      "$prefix.command.QUIT.221.$suffix"
+    ];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $self->assert($counts > 0,
-      "Expected count values for $counter_name, found none");
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $self->assert($counts > 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [
+      "$prefix.command.USER.331.$suffix",
+      "$prefix.command.PASS.230.$suffix",
+      "$prefix.command.QUIT.221.$suffix"
+    ];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $self->assert(scalar(@$timings) > 0,
+        "Expected timing values for $timer_name, found none");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    my $gauge_name = "$prefix.connection.$suffix";
+    $self->assert($gauges->{$gauge_name} == 0,
+      "Expected $gauge_name gauge 0, got $gauges->{$gauge_name}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [
-    "$prefix.command.USER.331.$suffix",
-    "$prefix.command.PASS.230.$suffix",
-    "$prefix.command.QUIT.221.$suffix"
-  ];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $self->assert(scalar(@$timings) > 0,
-      "Expected timing values for $timer_name, found none");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  my $gauge_name = "$prefix.connection.$suffix";
-  $self->assert($gauges->{$gauge_name} == 0,
-    "Expected $gauge_name gauge 0, got $gauges->{$gauge_name}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
@@ -787,13 +732,13 @@ sub statsd_timeout_login {
     TimeoutLogin => $timeout_login,
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdServer => "udp://127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -846,47 +791,52 @@ sub statsd_timeout_login {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $counts == 0 unless $counts;
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $counts == 0 unless $counts;
 
-    $self->assert($counts == 0,
-      "Expected count values for $counter_name, found none");
+      $self->assert($counts == 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    $self->assert($counters->{'timeout.TimeoutLogin'} == 1,
+      "Expected count value for timeout.TimeoutLogin, found none");
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $timings = [] unless $timings;
+      $self->assert(scalar(@$timings) == 0,
+        "Expected no timing values for $timer_name, found some");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    $self->assert($gauges->{connection} == 0,
+      "Expected connection gauge 0, got $gauges->{connection}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  $self->assert($counters->{'timeout.TimeoutLogin'} == 1,
-    "Expected count value for timeout.TimeoutLogin, found none");
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $timings = [] unless $timings;
-    $self->assert(scalar(@$timings) == 0,
-      "Expected no timing values for $timer_name, found some");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  $self->assert($gauges->{connection} == 0,
-    "Expected connection gauge 0, got $gauges->{connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
@@ -909,14 +859,14 @@ sub statsd_exclude_filter {
     AuthGroupFile => $setup->{auth_group_file},
 
     IfModules => {
+      'mod_delay.c' => {
+        DelayEngine => 'off',
+      },
+
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdExcludeFilter => '^SYST$',
         StatsdServer => "udp://127.0.0.1:$statsd_port",
-      },
-
-      'mod_delay.c' => {
-        DelayEngine => 'off',
       },
     },
   };
@@ -967,41 +917,46 @@ sub statsd_exclude_filter {
   server_stop($setup->{pid_file});
   $self->assert_child_ok($pid);
 
-  my $counters = get_statsd_info('counters');
+  eval {
+    my $counters = get_statsd_info('counters');
 
-  my $counter_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
+    my $counter_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
 
-  foreach my $counter_name (@$counter_names) {
-    my $counts = $counters->{$counter_name};
-    $self->assert($counts > 0,
-      "Expected count values for $counter_name, found none");
+    foreach my $counter_name (@$counter_names) {
+      my $counts = $counters->{$counter_name};
+      $self->assert($counts > 0,
+        "Expected count values for $counter_name, found none");
+    }
+
+    my $timers = get_statsd_info('timers');
+
+    # For timers, we simply expect to HAVE timings
+    my $timer_names = [qw(
+      command.USER.331
+      command.PASS.230
+      command.QUIT.221
+    )];
+
+    foreach my $timer_name (@$timer_names) {
+      my $timings = $timers->{$timer_name};
+      $self->assert(scalar(@$timings) > 0,
+        "Expected timing values for $timer_name, found none");
+    }
+
+    my $gauges = get_statsd_info('gauges');
+
+    # Our connection gauge is a GAUGE; we expect it to have the same value after
+    # as before.
+    $self->assert($gauges->{connection} == 0,
+      "Expected connection gauge 0, got $gauges->{connection}");
+  };
+  if ($@) {
+    $ex = $@;
   }
-
-  my $timers = get_statsd_info('timers');
-
-  # For timers, we simply expect to HAVE timings
-  my $timer_names = [qw(
-    command.USER.331
-    command.PASS.230
-    command.QUIT.221
-  )];
-
-  foreach my $timer_name (@$timer_names) {
-    my $timings = $timers->{$timer_name};
-    $self->assert(scalar(@$timings) > 0,
-      "Expected timing values for $timer_name, found none");
-  }
-
-  my $gauges = get_statsd_info('gauges');
-
-  # Our connection gauge is a GAUGE; we expect it to have the same value after
-  # as before.
-  $self->assert($gauges->{connection} == 0,
-    "Expected connection gauge 0, got $gauges->{connection}");
 
   test_cleanup($setup->{log_file}, $ex);
 }
