@@ -69,8 +69,17 @@ static char *get_cmd_metric(pool *p, const char *cmd) {
   return metric;
 }
 
-static char *get_conn_metric(pool *p) {
-  return pstrdup(p, "connection");
+static char *get_conn_metric(pool *p, const char *name) {
+  char *metric;
+
+  if (name == NULL) {
+    metric = pstrdup(p, "connection");
+
+  } else {
+    metric = pstrcat(p, name, ".connection", NULL);
+  }
+
+  return metric;
 }
 
 static char *get_timeout_metric(pool *p, const char *name) {
@@ -310,10 +319,14 @@ MODRET set_statsdserver(cmd_rec *cmd) {
 
 static void log_tls_auth_metrics(cmd_rec *cmd, uint64_t now_ms) {
   const uint64_t *start_ms;
-  char *handshake_metric, *protocol_env, *cipher_env;
+  char *handshake_metric, *proto_metric, *protocol_env, *cipher_env;
 
   handshake_metric = get_tls_metric(cmd->tmp_pool, "handshake.ctrl");
   statsd_metric_counter(statsd, handshake_metric, 1);
+
+  proto_metric = get_conn_metric(cmd->tmp_pool, "ftps");
+  statsd_metric_counter(statsd, proto_metric, 1);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
 
   start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
   if (start_ms != NULL) {
@@ -404,6 +417,24 @@ static void log_cmd_metrics(cmd_rec *cmd, int had_error) {
   }
 
   log_tls_metrics(cmd, had_error, now_ms);
+
+  if (pr_cmd_cmp(cmd, PR_CMD_PASS_ID) == 0 &&
+      had_error == FALSE) {
+    const char *proto;
+
+    proto = pr_session_get_protocol(0);
+    if (strcmp(proto, "ftp") == 0) {
+      char *proto_metric;
+
+      /* At this point in time, we are certain that we have a plain FTP
+       * connection, not FTPS or SFTP or anything else.
+       */
+      proto_metric = get_conn_metric(cmd->tmp_pool, "ftp");
+      statsd_metric_counter(statsd, proto_metric, 1);
+      statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+    }
+  }
+
   statsd_statsd_flush(statsd);
 }
 
@@ -423,8 +454,13 @@ MODRET statsd_log_any_err(cmd_rec *cmd) {
 static void statsd_exit_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
     char *metric;
+    const char *proto;
 
-    metric = get_conn_metric(session.pool);
+    metric = get_conn_metric(session.pool, NULL);
+    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+
+    proto = pr_session_get_protocol(0);
+    metric = get_conn_metric(session.pool, proto);
     statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
 
     statsd_statsd_close(statsd);
@@ -503,36 +539,73 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
   }
 }
 
-static void incr_timeout_metric(pool *p, const char *name) {
+static void statsd_ssh2_sftp_sess_opened_ev(const void *event_data,
+    void *user_data) {
+  pool *tmp_pool;
+  char *proto_metric;
+
+  if (should_sample(statsd_sampling) == FALSE) {
+    return;
+  }
+
+  tmp_pool = make_sub_pool(session.pool);
+  proto_metric = get_conn_metric(tmp_pool, "sftp");
+  statsd_metric_counter(statsd, proto_metric, 1);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
+}
+
+static void statsd_ssh2_scp_sess_opened_ev(const void *event_data,
+    void *user_data) {
+  pool *tmp_pool;
+  char *proto_metric;
+
+  if (should_sample(statsd_sampling) == FALSE) {
+    return;
+  }
+
+  tmp_pool = make_sub_pool(session.pool);
+  proto_metric = get_conn_metric(tmp_pool, "scp");
+  statsd_metric_counter(statsd, proto_metric, 1);
+  statsd_metric_gauge(statsd, proto_metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
+}
+
+static void incr_timeout_metric(const char *name) {
+  pool *tmp_pool;
   char *metric;
 
   /* Unlike other common metrics, for now the timeout counters are NOT subject
    * to the sampling frequency.
    */
 
-  metric = get_timeout_metric(p, name);
+  tmp_pool = make_sub_pool(session.pool);
+  metric = get_timeout_metric(tmp_pool, name);
   statsd_metric_counter(statsd, metric, 1);
   statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
 }
 
 static void statsd_timeout_idle_ev(const void *event_data, void *user_data) {
-  incr_timeout_metric(session.pool, "TimeoutIdle");
+  incr_timeout_metric("TimeoutIdle");
 }
 
 static void statsd_timeout_login_ev(const void *event_data, void *user_data) {
-  incr_timeout_metric(session.pool, "TimeoutLogin");
+  incr_timeout_metric("TimeoutLogin");
 }
 
 static void statsd_timeout_noxfer_ev(const void *event_data, void *user_data) {
-  incr_timeout_metric(session.pool, "TimeoutNoTransfer");
+  incr_timeout_metric("TimeoutNoTransfer");
 }
 
 static void statsd_timeout_session_ev(const void *event_data, void *user_data) {
-  incr_timeout_metric(session.pool, "TimeoutSession");
+  incr_timeout_metric("TimeoutSession");
 }
 
 static void statsd_timeout_stalled_ev(const void *event_data, void *user_data) {
-  incr_timeout_metric(session.pool, "TimeoutStalled");
+  incr_timeout_metric("TimeoutStalled");
 }
 
 static void incr_tls_handshake_error_metric(const char *name) {
@@ -634,7 +707,7 @@ static int statsd_sess_init(void) {
     statsd_sampling = *((float *) c->argv[0]);
   }
 
-  metric = get_conn_metric(session.pool);
+  metric = get_conn_metric(session.pool, NULL);
   statsd_metric_gauge(statsd, metric, 1, STATSD_METRIC_GAUGE_FL_ADJUST);
   statsd_statsd_flush(statsd);
 
@@ -650,6 +723,13 @@ static int statsd_sess_init(void) {
     statsd_timeout_session_ev, NULL);
   pr_event_register(&statsd_module, "core.timeout-stalled",
     statsd_timeout_stalled_ev, NULL);
+
+  if (pr_module_exists("mod_sftp.c") == TRUE) {
+    pr_event_register(&statsd_module, "mod_sftp.sftp.session-opened",
+      statsd_ssh2_sftp_sess_opened_ev, NULL);
+    pr_event_register(&statsd_module, "mod_sftp.scp.session-opened",
+      statsd_ssh2_scp_sess_opened_ev, NULL);
+  }
 
   if (pr_module_exists("mod_tls.c") == TRUE) {
     pr_event_register(&statsd_module, "mod_tls.ctrl-handshake-failed",
