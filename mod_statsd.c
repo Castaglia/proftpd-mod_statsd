@@ -73,10 +73,17 @@ static char *get_conn_metric(pool *p) {
   return pstrdup(p, "connection");
 }
 
-static char *get_timeout_metric(pool *p, const char *timeout) {
+static char *get_timeout_metric(pool *p, const char *name) {
   char *metric;
 
-  metric = pstrcat(p, "timeout.", timeout, NULL);
+  metric = pstrcat(p, "timeout.", name, NULL);
+  return metric;
+}
+
+static char *get_tls_metric(pool *p, const char *name) {
+  char *metric;
+
+  metric = pstrcat(p, "tls.", name, NULL);
   return metric;
 }
 
@@ -301,25 +308,88 @@ MODRET set_statsdserver(cmd_rec *cmd) {
 /* Command handlers
  */
 
-MODRET statsd_log_any(cmd_rec *cmd) {
-  char *metric;
+static void log_tls_auth_metrics(cmd_rec *cmd, uint64_t now_ms) {
   const uint64_t *start_ms;
+  char *handshake_metric, *protocol_env, *cipher_env;
+
+  handshake_metric = get_tls_metric(cmd->tmp_pool, "handshake.ctrl");
+  statsd_metric_counter(statsd, handshake_metric, 1);
+
+  start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
+  if (start_ms != NULL) {
+    uint64_t handshake_ms;
+
+    handshake_ms = now_ms - *start_ms;
+    statsd_metric_timer(statsd, handshake_metric, handshake_ms);
+  }
+
+  cipher_env = pr_env_get(cmd->tmp_pool, "TLS_CIPHER");
+  if (cipher_env != NULL) {
+    char *cipher_metric;
+
+    cipher_metric = get_tls_metric(cmd->tmp_pool,
+      pstrcat(cmd->tmp_pool, "cipher.", cipher_env, NULL));
+    statsd_metric_counter(statsd, cipher_metric, 1);
+  }
+
+  protocol_env = pr_env_get(cmd->tmp_pool, "TLS_PROTOCOL");
+  if (protocol_env != NULL) {
+    char *protocol_metric;
+
+    protocol_metric = get_tls_metric(cmd->tmp_pool,
+      pstrcat(cmd->tmp_pool, "protocol.", protocol_env, NULL));
+    statsd_metric_counter(statsd, protocol_metric, 1);
+  }
+}
+
+static void log_tls_metrics(cmd_rec *cmd, int had_error, uint64_t now_ms) {
+  if (pr_module_exists("mod_tls.c") != TRUE) {
+    return;
+  }
+
+  if (pr_cmd_cmp(cmd, PR_CMD_AUTH_ID) == 0 &&
+      cmd->argc == 2) {
+    char *tls_mode;
+
+    /* Find out if the args are one of the mod_tls (vs GSSAPI et al) ones. */
+
+    tls_mode = cmd->argv[1];
+    if (strcasecmp(tls_mode, "TLS") == 0 ||
+        strcasecmp(tls_mode, "TLS-C") == 0 ||
+        strcasecmp(tls_mode, "TLS-P") == 0 ||
+        strcasecmp(tls_mode, "SSL") == 0) {
+      /* We are only interested in tracking successful handshakes here; the
+       * failed handshakes are tracked elsewhere.
+       */
+      if (had_error == FALSE) {
+        log_tls_auth_metrics(cmd, now_ms);
+      }
+    }
+  }
+}
+
+static void log_cmd_metrics(cmd_rec *cmd, int had_error) {
+  char *metric;
+  const uint64_t *start_ms = NULL;
+  uint64_t now_ms = 0;
 
   if (statsd_engine == FALSE) {
-    return PR_DECLINED(cmd);
+    return;
   }
+
+  pr_gettimeofday_millis(&now_ms);
 
   if (should_exclude(cmd) == TRUE) {
     pr_trace_msg(trace_channel, 9,
       "command '%s' excluded by StatsdExcludeFilter '%s'", (char *) cmd->argv[0],
       statsd_exclude_filter);
-    return PR_DECLINED(cmd);
+    return;
   }
 
   if (should_sample(statsd_sampling) != TRUE) {
     pr_trace_msg(trace_channel, 28, "skipping sampling of metric for '%s'",
       (char *) cmd->argv[0]);
-    return PR_DECLINED(cmd);
+    return;
   }
 
   metric = get_cmd_metric(cmd->tmp_pool, cmd->argv[0]);
@@ -327,16 +397,23 @@ MODRET statsd_log_any(cmd_rec *cmd) {
 
   start_ms = pr_table_get(cmd->notes, "start_ms", NULL);
   if (start_ms != NULL) {
-    uint64_t end_ms, response_ms;
+    uint64_t response_ms;
 
-    pr_gettimeofday_millis(&end_ms);
-
-    response_ms = end_ms - *start_ms;
-
+    response_ms = now_ms - *start_ms;
     statsd_metric_timer(statsd, metric, response_ms);
   }
 
+  log_tls_metrics(cmd, had_error, now_ms);
   statsd_statsd_flush(statsd);
+}
+
+MODRET statsd_log_any(cmd_rec *cmd) {
+  log_cmd_metrics(cmd, FALSE);
+  return PR_DECLINED(cmd);
+}
+
+MODRET statsd_log_any_err(cmd_rec *cmd) {
+  log_cmd_metrics(cmd, TRUE);
   return PR_DECLINED(cmd);
 }
 
@@ -458,6 +535,32 @@ static void statsd_timeout_stalled_ev(const void *event_data, void *user_data) {
   incr_timeout_metric(session.pool, "TimeoutStalled");
 }
 
+static void incr_tls_handshake_error_metric(const char *name) {
+  pool *tmp_pool;
+  char *metric;
+
+  tmp_pool = make_sub_pool(session.pool);
+
+  /* Unlike other common metrics, for now the TLS handshake counters are NOT
+   * subject to the sampling frequency.
+   */
+
+  metric = get_tls_metric(tmp_pool, name);
+  statsd_metric_counter(statsd, metric, 1);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
+}
+
+static void statsd_tls_ctrl_handshake_error_ev(const void *event_data,
+    void *user_data) {
+  incr_tls_handshake_error_metric("handshake.ctrl.error");
+}
+
+static void statsd_tls_data_handshake_error_ev(const void *event_data,
+    void *user_data) {
+  incr_tls_handshake_error_metric("handshake.data.error");
+}
+
 /* Initialization functions
  */
 
@@ -548,7 +651,12 @@ static int statsd_sess_init(void) {
   pr_event_register(&statsd_module, "core.timeout-stalled",
     statsd_timeout_stalled_ev, NULL);
 
-/* XXX What about other modules' timeouts?  TLSTimeoutHandshake? */
+  if (pr_module_exists("mod_tls.c") == TRUE) {
+    pr_event_register(&statsd_module, "mod_tls.ctrl-handshake-failed",
+      statsd_tls_ctrl_handshake_error_ev, NULL);
+    pr_event_register(&statsd_module, "mod_tls.data-handshake-failed",
+      statsd_tls_data_handshake_error_ev, NULL);
+  }
 
   return 0;
 }
@@ -578,8 +686,8 @@ static conftable statsd_conftab[] = {
 };
 
 static cmdtable statsd_cmdtab[] = {
-  { LOG_CMD,		C_ANY,	G_NONE,	statsd_log_any,	FALSE,	FALSE },
-  { LOG_CMD_ERR,	C_ANY,	G_NONE,	statsd_log_any,	FALSE,	FALSE },
+  { LOG_CMD,		C_ANY,	G_NONE,	statsd_log_any,		FALSE,	FALSE },
+  { LOG_CMD_ERR,	C_ANY,	G_NONE,	statsd_log_any_err,	FALSE,	FALSE },
 };
 
 module statsd_module = {
