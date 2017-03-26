@@ -32,13 +32,9 @@ my $TESTS = {
     test_class => [qw(forking)],
   },
 
-  # Note: this test requires that statsd be listening for TCP, not UDP.
-  # Rather than disabling this test using the 'inprogress' tag, the
-  # test itself should make a probe TCP connection, and simply return if
-  # that TCP connection to statsd fails.
   statsd_server_tcp => {
     order => ++$order,
-    test_class => [qw(forking inprogress)],
+    test_class => [qw(forking)],
   },
 
   statsd_sampling => {
@@ -96,6 +92,7 @@ sub list_tests {
     STATSD_MGMT_PORT
   )];
 
+  $ENV{STATSD_PORT} = 8125 unless defined($ENV{STATSD_PORT});
   $ENV{STATSD_MGMT_PORT} = 8126 unless defined($ENV{STATSD_MGMT_PORT});
 
   foreach my $req (@$required) {
@@ -105,7 +102,6 @@ sub list_tests {
     }
   }
 
-  $ENV{PROFTPD_TEST_DISABLE_CLASS} = 'inprogress';
   return testsuite_get_runnable_tests($TESTS);
 }
 
@@ -114,7 +110,7 @@ sub statsd_engine {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
     PidFile => $setup->{pid_file},
@@ -232,7 +228,7 @@ sub statsd_server_udp {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
     PidFile => $setup->{pid_file},
@@ -348,9 +344,28 @@ sub statsd_server_udp {
 sub statsd_server_tcp {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
-  my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
+
+  # Note: this test requires that statsd be listening for TCP, not UDP.
+  # Make a probe TCP connection to statsd; if that fails, skip this test.
+
+  my $opts = {
+    PeerHost => '127.0.0.1',
+    PeerPort => $statsd_port,
+    Proto => 'tcp',
+    Type => SOCK_STREAM,
+    Timeout => 3
+  };
+
+  my $client = IO::Socket::INET->new(%$opts);
+  unless ($client) {
+    print STDERR " + unable to run 'statsd_server_tcp' test because statsd not configured for TCP on port $statsd_port, skipping\n";
+    return;
+  }
+
+  $client->close();
+  my $setup = test_setup($tmpdir, 'statsd');
 
   my $config = {
     PidFile => $setup->{pid_file},
@@ -468,7 +483,7 @@ sub statsd_sampling {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
   my $sampling = 25.0;
 
   my $config = {
@@ -596,7 +611,7 @@ sub statsd_namespacing {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
   my $prefix = "proftpd.prod";
   my $suffix = "tests";
 
@@ -717,7 +732,7 @@ sub statsd_timeout_login {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
   my $timeout_login = 3;
 
   my $config = {
@@ -846,7 +861,7 @@ sub statsd_exclude_filter {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
     PidFile => $setup->{pid_file},

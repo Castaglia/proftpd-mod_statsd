@@ -72,6 +72,7 @@ sub list_tests {
     STATSD_MGMT_PORT
   )];
 
+  $ENV{STATSD_PORT} = 8125 unless defined($ENV{STATSD_PORT});
   $ENV{STATSD_MGMT_PORT} = 8126 unless defined($ENV{STATSD_MGMT_PORT});
 
   foreach my $req (@$required) {
@@ -90,7 +91,7 @@ sub statsd_tls_handshakes {
   my $setup = test_setup($tmpdir, 'statsd');
 
   my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
     PidFile => $setup->{pid_file},
@@ -220,7 +221,7 @@ sub statsd_tls_protocol_and_cipher {
   my $setup = test_setup($tmpdir, 'statsd');
 
   my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
-  my $statsd_port = 8125;
+  my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
     PidFile => $setup->{pid_file},
