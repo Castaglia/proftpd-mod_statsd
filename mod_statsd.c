@@ -42,6 +42,7 @@ static const char *statsd_exclude_filter = NULL;
 static pr_regex_t *statsd_exclude_pre = NULL;
 #endif /* PR_USE_REGEX */
 static float statsd_sampling = STATSD_DEFAULT_SAMPLING;
+static uint64_t statsd_sess_start_ms = 0;
 static struct statsd *statsd = NULL;
 
 static int statsd_sess_init(void);
@@ -455,6 +456,7 @@ static void statsd_exit_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
     char *metric;
     const char *proto;
+    uint64_t now_ms = 0, sess_ms;
 
     metric = get_conn_metric(session.pool, NULL);
     statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
@@ -462,6 +464,10 @@ static void statsd_exit_ev(const void *event_data, void *user_data) {
     proto = pr_session_get_protocol(0);
     metric = get_conn_metric(session.pool, proto);
     statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_GAUGE_FL_ADJUST);
+
+    pr_gettimeofday_millis(&now_ms);
+    sess_ms = now_ms - statsd_sess_start_ms;
+    statsd_metric_timer(statsd, metric, sess_ms);
 
     statsd_statsd_close(statsd);
     statsd = NULL;
@@ -736,6 +742,14 @@ static int statsd_sess_init(void) {
       statsd_tls_ctrl_handshake_error_ev, NULL);
     pr_event_register(&statsd_module, "mod_tls.data-handshake-failed",
       statsd_tls_data_handshake_error_ev, NULL);
+  }
+
+  /* We only want to set the session start time once; this function could be
+   * called again due to e.g. a HOST command, and we do not want to reset
+   * the start time in that case.
+   */
+  if (statsd_sess_start_ms == 0) {
+    pr_gettimeofday_millis(&statsd_sess_start_ms);
   }
 
   return 0;
