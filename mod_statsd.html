@@ -204,14 +204,17 @@ Note that the TLS-related metrics are only available when FTPS is used,
 Counters:
 <pre>
   <i>command</i>.<i>response-code</i>
+  <i>protocol</i>.connection
   tls.handshake.ctrl
   tls.hansdshake.ctrl.error
   tls.hansdshake.data.error
   tls.cipher.<i>cipher</i>
 </pre>
-Example:
+Examples:
 <pre>
   USER.230
+  ftp.connection
+  sftp.connection
   tls.cipher.ECDHE-RSA-AES128-SHA
   tls.protocol.TLSv1
 </pre>
@@ -220,11 +223,14 @@ Example:
 Timers:
 <pre>
   <i>command</i>.<i>response-code</i>
+  <i>protocol</i>.connection
   tls.handshake.ctrl
 </pre>
-Example:
+Examples:
 <pre>
   PASS.331
+  ftp.connection
+  sftp.connection
   tls.handshake.ctrl
 </pre>
 
@@ -232,6 +238,13 @@ Example:
 Gauges:
 <pre>
   connection
+  <i>protocol</i>.connection
+</pre>
+Examples:
+<pre>
+  connection
+  ftp.connection
+  sftp.connection
 </pre>
 
 <p>
