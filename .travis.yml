@@ -36,6 +36,7 @@ script:
   - ./configure --enable-devel=coverage --enable-tests --with-modules=mod_statsd
   - make
   - cd contrib/mod_statsd && make TEST_VERBOSE=1 check && cd ../../
+  # Run `tidy -e -q mod_statsd.html` for doc validation
 
 after_success:
   - cd ${TRAVIS_BUILD_DIR}

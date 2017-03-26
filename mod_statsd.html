@@ -14,8 +14,8 @@
 
 <p>
 The <code>mod_statsd</code> module instruments the ProFTPD code to emit
-_metrics_ directly to a [`statsd`](https://github.com/etsy/statsd) server,
-avoiding the need for log file parsing.
+<i>metrics</i> directly to a [`statsd`](https://github.com/etsy/statsd) server,
+avoiding the need for custom log file parsing.
 
 <p>
 This module is contained in the <code>mod_statsd</code> files for
@@ -172,7 +172,7 @@ To build <code>mod_statsd</code> as a DSO module:
 Then follow the usual steps:
 <pre>
   $ make
-  # make install
+  $ make install
 </pre>
 
 <p>
@@ -180,10 +180,7 @@ Then follow the usual steps:
 <h2><a name="Usage">Usage</a></h2>
 
 <p>
-The <code>mod_statsd</code> module works by ...
-
-<p>
-Example configuration:
+First, here is an example configuration:
 <pre>
   &lt;IfModule mod_statsd.c&gt;
     StatsdEngine on
@@ -193,58 +190,82 @@ Example configuration:
 
 <p>
 <b>Metrics</b><br>
+The <code>mod_statsd</code> module emits one counter, and one timer, for each
+command processed.  For example, a <code>USER</code> command which receives
+a 331 response code would generate a counter and a timer whose name is:
+<pre>
+  command.USER.331
+</pre>
+Optional metric <em>prefixes</em> and/or <em>suffixes</em> can be configured
+via the <a href="#StatsdServer"><code>StatsdServer</code></a> directive,
+<i>e.g.</i>:
+<pre>
+  StatsdServer udp://1.2.3.4:8125 prod ftp01
+</pre>
+would result in command metric names like:
+<pre>
+  prod.command.USER.331.ftp01
+</pre>
 
-Note that the TLS-related metrics are only available when FTPS is used,
-<i>and</i> when the <code>StdEnvVars</code> <a href="http://www.proftpd.org/docs/contrib/mod_tls.html#TLSOptions"><code>TLSOption</code></a> is enabled:
+<p>
+For each connection, <code>mod_statsd</code> will emit one counter and one gauge
+using a metric name of:
+<pre>
+  connection
+</pre>
+Protocol-specific connection metrics are also emitted: a counter, a timer, and
+a gauge, all using a metric name of "<i>protocol</i>.connection", thus:
+<ul>
+  <li><code>ftp.connection</code>
+  <li><code>ftps.connection</code>
+  <li><code>sftp.connection</code>
+  <li><code>scp.connection</code>
+</ul>
+
+<p>
+In addition, <code>mod_statsd</code> increments counters when the following
+timeouts are encountered:
+<ul>
+  <li><a href="http://www.proftpd.org/docs/modules/mod_core.html#TimeoutIdle"><code>TimeoutIdle</code></a>
+  <li><a href="http://www.proftpd.org/docs/modules/mod_auth.html#TimeoutLogin"><code>TimeoutLogin</code></a>
+  <li><a href="http://www.proftpd.org/docs/modules/mod_xfer.html#TimeoutNoTransfer"><code>TimeoutNoTransfer</code></a>
+  <li><a href="http://www.proftpd.org/docs/modules/mod_auth.html#TimeoutSession"><code>TimeoutSession</code></a>
+  <li><a href="http://www.proftpd.org/docs/modules/mod_xfer.html#TimeoutStalled"><code>TimeoutStalled</code></a>
+</ul>
+using a metric name of "timeout.<i>name</i>", like:
+<pre>
+  timeout.TimeoutLogin
+</pre>
+
+<p>
+<b>TLS-Specific Metrics</b><br>
+For FTPS connections, <code>mod_statsd</code> emits some TLS-specific metrics.
+The metric name <code>tls.handshake.ctrl</code> is used for both a counter and
+a timer, for tracking number of <i>successful</i> TLS handshakes <i>and</i> how
+long they take.  For <i>failed</i> TLS handshakes, the following two counters
+are used:
+<ul>
+  <li><code>tls.hansdshake.ctrl.error</code>
+  <li><code>tls.hansdshake.data.error</code>
+</ul>
+
+<p>
+Counters on the TLS protocol versions and ciphers used by FTPS clients are also
+available.  Note that these TLS-related counter metrics are only available when
+FTPS is used, <i>and</i> when the <code>StdEnvVars</code>
+<a href="http://www.proftpd.org/docs/contrib/mod_tls.html#TLSOptions"><code>TLSOption</code></a> is enabled:
 <pre>
   TLSOptions StdEnvVar
 </pre>
-
-<p>
-Counters:
+The counters in question are:
 <pre>
-  <i>command</i>.<i>response-code</i>
-  <i>protocol</i>.connection
-  tls.handshake.ctrl
-  tls.hansdshake.ctrl.error
-  tls.hansdshake.data.error
   tls.cipher.<i>cipher</i>
+  tls.protocol.<i>protocol</i>
 </pre>
-Examples:
+thus, for example, you would see:
 <pre>
-  USER.230
-  ftp.connection
-  sftp.connection
   tls.cipher.ECDHE-RSA-AES128-SHA
   tls.protocol.TLSv1
-</pre>
-
-<p>
-Timers:
-<pre>
-  <i>command</i>.<i>response-code</i>
-  <i>protocol</i>.connection
-  tls.handshake.ctrl
-</pre>
-Examples:
-<pre>
-  PASS.331
-  ftp.connection
-  sftp.connection
-  tls.handshake.ctrl
-</pre>
-
-<p>
-Gauges:
-<pre>
-  connection
-  <i>protocol</i>.connection
-</pre>
-Examples:
-<pre>
-  connection
-  ftp.connection
-  sftp.connection
 </pre>
 
 <p>
@@ -252,6 +273,8 @@ Examples:
 The <code>mod_statsd</code> module supports <a href="http://www.proftpd.org/docs/howto/Tracing.html">trace logging</a>, via the module-specific log channels:
 <ul>
   <li>statsd
+  <li>statsd.metric
+  <li>statsd.statsd
 </ul>
 Thus for trace logging, to aid in debugging, you would use the following in
 your <code>proftpd.conf</code>:
