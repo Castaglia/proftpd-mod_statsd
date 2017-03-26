@@ -455,19 +455,25 @@ MODRET statsd_log_any_err(cmd_rec *cmd) {
 static void statsd_exit_ev(const void *event_data, void *user_data) {
   if (statsd != NULL) {
     char *metric;
-    const char *proto;
-    uint64_t now_ms = 0, sess_ms;
+    unsigned char *authenticated;
 
     metric = get_conn_metric(session.pool, NULL);
     statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
 
-    proto = pr_session_get_protocol(0);
-    metric = get_conn_metric(session.pool, proto);
-    statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
+    authenticated = get_param_ptr(main_server->conf, "authenticated", FALSE);
+    if (authenticated != NULL &&
+        *authenticated == TRUE) {
+      const char *proto;
+      uint64_t now_ms = 0, sess_ms;
 
-    pr_gettimeofday_millis(&now_ms);
-    sess_ms = now_ms - statsd_sess_start_ms;
-    statsd_metric_timer(statsd, metric, sess_ms, 0);
+      proto = pr_session_get_protocol(0);
+      metric = get_conn_metric(session.pool, proto);
+      statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
+
+      pr_gettimeofday_millis(&now_ms);
+      sess_ms = now_ms - statsd_sess_start_ms;
+      statsd_metric_timer(statsd, metric, sess_ms, 0);
+    }
 
     statsd_statsd_close(statsd);
     statsd = NULL;
