@@ -14,7 +14,8 @@
 
 <p>
 The <code>mod_statsd</code> module instruments the ProFTPD code to emit
-<i>metrics</i> directly to a [`statsd`](https://github.com/etsy/statsd) server,
+<i>metrics</i> directly to a
+<a href="https://github.com/etsy/statsd"><code>statsd</code></a> server,
 avoiding the need for custom log file parsing.
 
 <p>
@@ -178,9 +179,7 @@ Then follow the usual steps:
 <p>
 <hr>
 <h2><a name="Usage">Usage</a></h2>
-
-<p>
-First, here is an example configuration:
+An example configuration:
 <pre>
   &lt;IfModule mod_statsd.c&gt;
     StatsdEngine on
