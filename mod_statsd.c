@@ -45,6 +45,9 @@ static float statsd_sampling = STATSD_DEFAULT_SAMPLING;
 static uint64_t statsd_sess_start_ms = 0;
 static struct statsd *statsd = NULL;
 
+/* SQL metrics */
+static unsigned int statsd_sql_conn_count = 0;
+
 static int statsd_sess_init(void);
 
 static const char *trace_channel = "statsd";
@@ -80,6 +83,13 @@ static char *get_conn_metric(pool *p, const char *name) {
     metric = pstrcat(p, name, ".connection", NULL);
   }
 
+  return metric;
+}
+
+static char *get_sql_metric(pool *p, const char *name) {
+  char *metric;
+
+  metric = pstrcat(p, "sql.", name, NULL);
   return metric;
 }
 
@@ -475,6 +485,13 @@ static void statsd_exit_ev(const void *event_data, void *user_data) {
       statsd_metric_timer(statsd, metric, sess_ms, 0);
     }
 
+    if (statsd_sql_conn_count > 0) {
+      metric = get_conn_metric(session.pool, "sql");
+      statsd_metric_gauge(statsd, metric, statsd_sql_conn_count * -1,
+        STATSD_METRIC_FL_GAUGE_ADJUST);
+      statsd_sql_conn_count = 0;
+    }
+
     statsd_statsd_close(statsd);
     statsd = NULL;
   }
@@ -549,6 +566,65 @@ static void statsd_shutdown_ev(const void *event_data, void *user_data) {
     statsd_statsd_close(statsd);
     statsd = NULL;
   }
+}
+
+static void statsd_sql_db_conn_closed_ev(const void *event_data,
+    void *user_data) {
+  pool *tmp_pool;
+  char *metric;
+
+  /* Unlike other common metrics, for now the SQL database counters are NOT
+   * subject to the sampling frequency.
+   */
+
+  tmp_pool = make_sub_pool(session.pool);
+  metric = get_conn_metric(tmp_pool, "sql");
+  statsd_metric_gauge(statsd, metric, -1, STATSD_METRIC_FL_GAUGE_ADJUST);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
+
+  if (statsd_sql_conn_count > 0) {
+    statsd_sql_conn_count--;
+  }
+}
+
+static void statsd_sql_db_conn_opened_ev(const void *event_data,
+    void *user_data) {
+  pool *tmp_pool;
+  char *metric;
+
+  /* Unlike other common metrics, for now the SQL database counters are NOT
+   * subject to the sampling frequency.
+   */
+
+  tmp_pool = make_sub_pool(session.pool);
+  metric = get_conn_metric(tmp_pool, "sql");
+  statsd_metric_counter(statsd, metric, 1, STATSD_METRIC_FL_IGNORE_SAMPLING);
+  statsd_metric_gauge(statsd, metric, 1, STATSD_METRIC_FL_GAUGE_ADJUST);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
+
+  /* We keep our own internal count of opened database connections.  That way,
+   * if the session dies/closes before the database connections are closed
+   * cleanly, we can still properly adjust the SQL database connection gauge.
+   */
+  statsd_sql_conn_count++;
+}
+
+static void statsd_sql_db_error_ev(const void *event_data, void *user_data) {
+  pool *tmp_pool;
+  char *metric;
+
+  tmp_pool = make_sub_pool(session.pool);
+
+  /* Unlike other common metrics, for now the SQL database counters are NOT
+   * subject to the sampling frequency.
+   */
+
+  metric = get_sql_metric(tmp_pool, "database.error");
+  statsd_metric_counter(statsd, metric, 1, STATSD_METRIC_FL_IGNORE_SAMPLING);
+  statsd_statsd_flush(statsd);
+  destroy_pool(tmp_pool);
 }
 
 static void statsd_ssh2_sftp_sess_opened_ev(const void *event_data,
@@ -741,6 +817,15 @@ static int statsd_sess_init(void) {
       statsd_ssh2_sftp_sess_opened_ev, NULL);
     pr_event_register(&statsd_module, "mod_sftp.scp.session-opened",
       statsd_ssh2_scp_sess_opened_ev, NULL);
+  }
+
+  if (pr_module_exists("mod_sql.c") == TRUE) {
+    pr_event_register(&statsd_module, "mod_sql.db.connection-opened",
+      statsd_sql_db_conn_opened_ev, NULL);
+    pr_event_register(&statsd_module, "mod_sql.db.connection-closed",
+      statsd_sql_db_conn_closed_ev, NULL);
+    pr_event_register(&statsd_module, "mod_sql.db.error",
+      statsd_sql_db_error_ev, NULL);
   }
 
   if (pr_module_exists("mod_tls.c") == TRUE) {
