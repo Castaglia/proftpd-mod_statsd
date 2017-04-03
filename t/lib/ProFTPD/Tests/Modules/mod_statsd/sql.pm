@@ -1,4 +1,4 @@
-package ProFTPD::Tests::Modules::mod_statsd::tls;
+package ProFTPD::Tests::Modules::mod_statsd::sql;
 
 use lib qw(t/lib);
 use base qw(ProFTPD::TestSuite::Child);
@@ -22,14 +22,14 @@ $| = 1;
 my $order = 0;
 
 my $TESTS = {
-  statsd_tls_handshakes => {
+  statsd_sql_conns => {
     order => ++$order,
-    test_class => [qw(forking mod_tls)],
+    test_class => [qw(forking mod_sql_sqlite)],
   },
 
-  statsd_tls_protocol_and_cipher => {
+  statsd_sql_errors => {
     order => ++$order,
-    test_class => [qw(forking mod_tls)],
+    test_class => [qw(forking mod_sql_sqlite)],
   },
 
 };
@@ -41,14 +41,10 @@ sub new {
 sub list_tests {
   # Check for the required Perl modules:
   #
-  #  IO-Socket-SSL
   #  JSON
-  #  Net-FTPSSL
 
   my $required = [qw(
-    IO::Socket::SSL
     JSON
-    Net::FTPSSL
   )];
 
   foreach my $req (@$required) {
@@ -68,7 +64,6 @@ sub list_tests {
   # statsd instance and our config files.
 
   $required = [qw(
-    PROFTPD_TEST_LIB
     STATSD_MGMT_PORT
   )];
 
@@ -82,15 +77,89 @@ sub list_tests {
     }
   }
 
-  return testsuite_get_runnable_tests($TESTS);
+#  return testsuite_get_runnable_tests($TESTS);
+  return qw(
+    statsd_sql_errors
+  );
 }
 
-sub statsd_tls_handshakes {
+sub build_db {
+  my $cmd = shift;
+  my $db_script = shift;
+  my $check_exit_status = shift;
+  $check_exit_status = 0 unless defined $check_exit_status;
+
+  if ($ENV{TEST_VERBOSE}) {
+    print STDERR "Executing sqlite3: $cmd\n";
+  }
+
+  my @output = `$cmd`;
+  my $exit_status = $?;
+
+  if ($ENV{TEST_VERBOSE}) {
+    print STDERR "Output: ", join('', @output), "\n";
+  }
+
+  if ($check_exit_status) {
+    if ($? != 0) {
+      croak("'$cmd' failed");
+    }
+  }
+
+  unlink($db_script);
+  return 1;
+}
+
+sub statsd_sql_conns {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
+  my $db_file = File::Spec->rel2abs("$tmpdir/proftpd.db");
+
+  # Build up sqlite3 command to create users, groups tables and populate them
+  my $db_script = File::Spec->rel2abs("$tmpdir/proftpd.sql");
+
+  if (open(my $fh, "> $db_script")) {
+    print $fh <<EOS;
+CREATE TABLE users (
+  userid TEXT,
+  passwd TEXT,
+  uid INTEGER,
+  gid INTEGER,
+  homedir TEXT,
+  shell TEXT,
+  lastdir TEXT
+);
+INSERT INTO users (userid, passwd, uid, gid, homedir, shell) VALUES ('$setup->{user}', '$setup->{passwd}', $setup->{uid}, $setup->{gid}, '$setup->{home_dir}', '/bin/bash');
+
+CREATE TABLE groups (
+  groupname TEXT,
+  gid INTEGER,
+  members TEXT
+);
+INSERT INTO groups (groupname, gid, members) VALUES ('$setup->{group}', $setup->{gid}, '$setup->{user}');
+EOS
+
+    unless (close($fh)) {
+      die("Can't write $db_script: $!");
+    }
+
+  } else {
+    die("Can't open $db_script: $!");
+  }
+
+  my $cmd = "sqlite3 $db_file < $db_script";
+  build_db($cmd, $db_script);
+
+  # Make sure that, if we're running as root, the database file has
+  # the permissions/privs set for use by proftpd
+  if ($< == 0) {
+    unless (chmod(0666, $db_file)) {
+      die("Can't set perms on $db_file to 0666: $!");
+    }
+  }
+
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -98,10 +167,9 @@ sub statsd_tls_handshakes {
     ScoreboardFile => $setup->{scoreboard_file},
     SystemLog => $setup->{log_file},
     TraceLog => $setup->{log_file},
-    Trace => 'statsd:20 statsd.statsd:20 statsd.metric:20',
+    Trace => 'sql:20 statsd:20 statsd.statsd:20 statsd.metric:20',
 
-    AuthUserFile => $setup->{auth_user_file},
-    AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_sql.c',
 
     IfModules => {
       'mod_delay.c' => {
@@ -113,12 +181,13 @@ sub statsd_tls_handshakes {
         StatsdServer => "udp://127.0.0.1:$statsd_port",
       },
 
-      'mod_tls.c' => {
-        TLSEngine => 'on',
-        TLSLog => $setup->{log_file},
-        TLSRequired => 'on',
-        TLSRSACertificateFile => $cert_file,
-      }
+      'mod_sql.c' => {
+        SQLAuthTypes => 'Plaintext',
+        SQLBackend => 'sqlite3',
+        SQLConnectInfo => $db_file,
+        SQLLogFile => $setup->{log_file},
+      },
+
     },
   };
 
@@ -135,7 +204,6 @@ sub statsd_tls_handshakes {
     die("Can't open pipe: $!");
   }
 
-  require Net::FTPSSL;
   my $ex;
 
   # Fork child
@@ -146,19 +214,8 @@ sub statsd_tls_handshakes {
       # Give the server a chance to start up
       sleep(1);
 
-      my $client = Net::FTPSSL->new('127.0.0.1',
-        Encryption => 'E',
-        Port => $port,
-      );
-
-      unless ($client) {
-        die("Can't connect to FTPS server: " . IO::Socket::SSL::errstr());
-      }
-
-      unless ($client->login($setup->{user}, $setup->{passwd})) {
-        die("Can't login: " . $client->last_message());
-      }
-
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      $client->login($setup->{user}, $setup->{passwd});
       $client->quit();
     };
     if ($@) {
@@ -186,26 +243,13 @@ sub statsd_tls_handshakes {
     my $counters = get_statsd_info('counters');
 
     my $counter_names = [qw(
-      tls.handshake.ctrl
+      sql.connection
     )];
 
     foreach my $counter_name (@$counter_names) {
       my $counts = $counters->{$counter_name};
       $self->assert($counts > 0,
         "Expected count values for $counter_name, found none");
-    }
-
-    my $timers = get_statsd_info('timers');
-
-    # For timers, we simply expect to HAVE timings
-    my $timer_names = [qw(
-      tls.handshake.ctrl
-    )];
-
-    foreach my $timer_name (@$timer_names) {
-      my $timings = $timers->{$timer_name};
-      $self->assert(scalar(@$timings) > 0,
-        "Expected timing values for $timer_name, found none");
     }
   };
   if ($@) {
@@ -215,12 +259,56 @@ sub statsd_tls_handshakes {
   test_cleanup($setup->{log_file}, $ex);
 }
 
-sub statsd_tls_protocol_and_cipher {
+sub statsd_sql_errors {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
+  my $db_file = File::Spec->rel2abs("$tmpdir/proftpd.db");
+
+  # Build up sqlite3 command to create users, groups tables and populate them
+  my $db_script = File::Spec->rel2abs("$tmpdir/proftpd.sql");
+
+  if (open(my $fh, "> $db_script")) {
+    print $fh <<EOS;
+CREATE TABLE users (
+  user TEXT,
+  passwd TEXT,
+  uid INTEGER,
+  gid INTEGER,
+  homedir TEXT,
+  shell TEXT,
+  lastdir TEXT
+);
+INSERT INTO users (user, passwd, uid, gid, homedir, shell) VALUES ('$setup->{user}', '$setup->{passwd}', $setup->{uid}, $setup->{gid}, '$setup->{home_dir}', '/bin/bash');
+
+CREATE TABLE groups (
+  groupname TEXT,
+  gid INTEGER,
+  members TEXT
+);
+INSERT INTO groups (groupname, gid, members) VALUES ('$setup->{group}', $setup->{gid}, '$setup->{user}');
+EOS
+
+    unless (close($fh)) {
+      die("Can't write $db_script: $!");
+    }
+
+  } else {
+    die("Can't open $db_script: $!");
+  }
+
+  my $cmd = "sqlite3 $db_file < $db_script";
+  build_db($cmd, $db_script);
+
+  # Make sure that, if we're running as root, the database file has
+  # the permissions/privs set for use by proftpd
+  if ($< == 0) {
+    unless (chmod(0666, $db_file)) {
+      die("Can't set perms on $db_file to 0666: $!");
+    }
+  }
+
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -228,10 +316,9 @@ sub statsd_tls_protocol_and_cipher {
     ScoreboardFile => $setup->{scoreboard_file},
     SystemLog => $setup->{log_file},
     TraceLog => $setup->{log_file},
-    Trace => 'statsd:20 statsd.statsd:20 statsd.metric:20 tls:20',
+    Trace => 'sql:20 statsd:20 statsd.statsd:20 statsd.metric:20',
 
-    AuthUserFile => $setup->{auth_user_file},
-    AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_sql.c',
 
     IfModules => {
       'mod_delay.c' => {
@@ -243,14 +330,13 @@ sub statsd_tls_protocol_and_cipher {
         StatsdServer => "udp://127.0.0.1:$statsd_port",
       },
 
-      'mod_tls.c' => {
-        TLSEngine => 'on',
-        TLSLog => $setup->{log_file},
-        TLSRequired => 'on',
-        TLSRSACertificateFile => $cert_file,
-        TLSOptions => 'EnableDiags StdEnvVars',
-        TLSProtocol => 'SSLv3 TLSv1 TLSv1.1',
-      }
+      'mod_sql.c' => {
+        SQLAuthTypes => 'Plaintext',
+        SQLBackend => 'sqlite3',
+        SQLConnectInfo => $db_file,
+        SQLLogFile => $setup->{log_file},
+      },
+
     },
   };
 
@@ -267,7 +353,6 @@ sub statsd_tls_protocol_and_cipher {
     die("Can't open pipe: $!");
   }
 
-  require Net::FTPSSL;
   my $ex;
 
   # Fork child
@@ -278,26 +363,11 @@ sub statsd_tls_protocol_and_cipher {
       # Give the server a chance to start up
       sleep(1);
 
-      my $ssl_opts = {
-        SSL_hostname => '127.0.0.1',
-        SSL_version => 'SSLv3',
-      };
-
-      my $client = Net::FTPSSL->new('127.0.0.1',
-        Encryption => 'E',
-        Port => $port,
-        SSL_Client_Certificate => $ssl_opts,
-      );
-
-      unless ($client) {
-        die("Can't connect to FTPS server: " . IO::Socket::SSL::errstr());
+      my $client = ProFTPD::TestSuite::FTP->new('127.0.0.1', $port);
+      eval { $client->login($setup->{user}, $setup->{passwd}) };
+      unless ($@) {
+        die("Login succeeded unexpectedly");
       }
-
-      unless ($client->login($setup->{user}, $setup->{passwd})) {
-        die("Can't login: " . $client->last_message());
-      }
-
-      $client->quit();
     };
     if ($@) {
       $ex = $@;
@@ -324,26 +394,13 @@ sub statsd_tls_protocol_and_cipher {
     my $counters = get_statsd_info('counters');
 
     my $counter_names = [qw(
-      tls.handshake.ctrl
+      sql.database.error
     )];
 
     foreach my $counter_name (@$counter_names) {
       my $counts = $counters->{$counter_name};
       $self->assert($counts > 0,
         "Expected count values for $counter_name, found none");
-    }
-
-    my $timers = get_statsd_info('timers');
-
-    # For timers, we simply expect to HAVE timings
-    my $timer_names = [qw(
-      tls.handshake.ctrl
-    )];
-
-    foreach my $timer_name (@$timer_names) {
-      my $timings = $timers->{$timer_name};
-      $self->assert(scalar(@$timings) > 0,
-        "Expected timing values for $timer_name, found none");
     }
   };
   if ($@) {
