@@ -86,6 +86,51 @@ static char *get_conn_metric(pool *p, const char *name) {
   return metric;
 }
 
+static char *get_log_level_metric(pool *p, int log_level) {
+  char *name, *metric;
+
+  switch (log_level) {
+    case PR_LOG_DEBUG:
+      name = "DEBUG";
+      break;
+
+    case PR_LOG_INFO:
+      name = "INFO";
+      break;
+
+    case PR_LOG_NOTICE:
+      name = "NOTICE";
+      break;
+
+    case PR_LOG_WARNING:
+      name = "WARN";
+      break;
+
+    case PR_LOG_ERR:
+      name = "ERROR";
+      break;
+
+    case PR_LOG_CRIT:
+      name = "CRIT";
+      break;
+
+    case PR_LOG_ALERT:
+      name = "ALERT";
+      break;
+
+    case PR_LOG_EMERG:
+      name = "EMERG";
+      break;
+
+    default:
+      name = "unknown";
+      break;
+  }
+
+  metric = pstrcat(p, "log.", name, NULL);
+  return metric;
+}
+
 static char *get_sql_metric(pool *p, const char *name) {
   char *metric;
 
@@ -497,6 +542,24 @@ static void statsd_exit_ev(const void *event_data, void *user_data) {
   }
 }
 
+static void statsd_log_ev(const void *event_data, void *user_data) {
+  const pr_log_event_t *le;
+  pool *tmp_pool;
+  char *metric;
+
+  le = event_data;
+
+  tmp_pool = make_sub_pool(session.pool);
+
+  /* Unlike other common metrics, for now the log level counters are NOT
+   * subject to the sampling frequency.
+   */
+
+  metric = get_log_level_metric(tmp_pool, le->log_level);
+  statsd_metric_counter(statsd, metric, 1, STATSD_METRIC_FL_IGNORE_SAMPLING);
+  destroy_pool(tmp_pool);
+}
+
 #if defined(PR_SHARED_MODULE)
 static void statsd_mod_unload_ev(const void *event_data, void *user_data) {
   if (strcmp("mod_statsd.c", (const char *) event_data) == 0) {
@@ -800,6 +863,7 @@ static int statsd_sess_init(void) {
   statsd_statsd_flush(statsd);
 
   pr_event_register(&statsd_module, "core.exit", statsd_exit_ev, NULL);
+  pr_event_register(&statsd_module, "core.log.systemlog", statsd_log_ev, NULL);
 
   pr_event_register(&statsd_module, "core.timeout-idle",
     statsd_timeout_idle_ev, NULL);

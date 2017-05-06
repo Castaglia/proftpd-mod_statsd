@@ -237,6 +237,16 @@ using a metric name of "timeout.<i>name</i>", like:
 </pre>
 
 <p>
+Log message level counters will also emitted, <i>e.g.</i>:
+<pre>
+  log.DEBUG
+  log.INFO
+  log.NOTICE
+  log.WARN
+  log.ERROR
+</pre>
+
+<p>
 <b>SQL-Specific Metrics</b><br>
 When <a href="http://www.proftpd.org/docs/contrib/mod_sql.html"><code>mod_sql</code></a> is present, <code>mod_statsd</code> emits some SQL-specific metrics.
 Specifically, a <code>sql.connection</code> counter and gauge are maintained for
