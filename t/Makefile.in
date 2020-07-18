@@ -39,6 +39,7 @@ TEST_API_DEPS=\
   $(top_srcdir)/src/env.o \
   $(top_srcdir)/src/trace.o \
   $(top_srcdir)/src/support.o \
+  $(top_srcdir)/src/error.o \
   $(module_srcdir)/statsd.o \
   $(module_srcdir)/metric.o
 
