@@ -8,8 +8,10 @@ install:
   - sudo apt-get update -qq
   # for unit tests
   - sudo apt-get install -y check
+  - sudo apt-get install -y libsubunit-dev
   # for static code analysis
-  - sudo apt-get install -y cppcheck rats
+  # - sudo apt-get install -y cppcheck
+  # - sudo apt-get install -y rats
   # for test code coverage
   - sudo apt-get install -y lcov
   - gem install coveralls-lcov
@@ -21,7 +23,7 @@ before_script:
 script:
   # - find . -type f -name "*.c" -print | grep -v t\/ | xargs cppcheck 2>&1
   # - find . -type f -name "*.c" -print | grep -v t\/ | xargs rats --language=c
-  - git clone --depth 50 https://github.com/proftpd/proftpd.git
+  - git clone --depth 10 https://github.com/proftpd/proftpd.git
   - mkdir -p proftpd/contrib/mod_statsd/
   - cp *.[ch] proftpd/contrib/mod_statsd/
   - cp mod_statsd.* proftpd/contrib/mod_statsd/
@@ -30,10 +32,10 @@ script:
   - cp install-sh proftpd/contrib/mod_statsd/
   - cp -R t/ proftpd/contrib/mod_statsd/t/
   - cd proftpd
-  - ./configure --enable-devel=coverage --enable-dso --enable-tests --with-shared=mod_statsd
+  - ./configure LIBS='-lm -lsubunit -lrt -pthread' --enable-devel=coverage --enable-dso --enable-tests --with-shared=mod_statsd
   - make
   - make clean
-  - ./configure --enable-devel=coverage --enable-tests --with-modules=mod_statsd
+  - ./configure LIBS='-lm -lsubunit -lrt -pthread' --enable-devel=coverage --enable-tests --with-modules=mod_statsd
   - make
   - cd contrib/mod_statsd && make TEST_VERBOSE=1 check && cd ../../
   # Run `tidy -e -q mod_statsd.html` for doc validation
