@@ -157,6 +157,10 @@ void pr_session_disconnect(module *m, int reason_code, const char *details) {
 void pr_session_end(int flags) {
 }
 
+const char *pr_session_get_protocol(int flags) {
+  return "ftp";
+}
+
 int pr_session_set_protocol(const char *proto) {
   return 0;
 }
