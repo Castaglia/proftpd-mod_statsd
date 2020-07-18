@@ -42,7 +42,7 @@ TEST_API_DEPS=\
   $(module_srcdir)/statsd.o \
   $(module_srcdir)/metric.o
 
-TEST_API_LIBS=-lcheck
+TEST_API_LIBS=-lcheck -lm
 
 TEST_API_OBJS=\
   api/statsd.o \
