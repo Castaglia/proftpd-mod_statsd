@@ -36,11 +36,11 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
   int flags);
 
 /* Use this flag, for a gauge, for adjusting the existing gauge value, rather
- * that setting it.
+ * than setting it.
  */
 #define STATSD_METRIC_FL_GAUGE_ADJUST		0x0001
 
-/* Usage this flag to indicate that the metric is NOT subject to the sampling
+/* Use this flag to indicate that the metric is NOT subject to the sampling
  * frequency.
  */
 #define STATSD_METRIC_FL_IGNORE_SAMPLING	0x0002

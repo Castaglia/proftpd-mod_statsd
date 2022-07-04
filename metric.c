@@ -1,6 +1,6 @@
 /*
  * ProFTPD: mod_statsd Metric API
- * Copyright (c) 2017 TJ Saunders
+ * Copyright (c) 2017-2022 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,6 +149,9 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
   if (flags & STATSD_METRIC_FL_GAUGE_ADJUST) {
     if (val > 0) {
       val_prefix = "+";
+
+    } else if (val < 0) {
+      val_prefix = "-";
     }
 
   } else {
@@ -160,7 +163,7 @@ int statsd_metric_gauge(struct statsd *statsd, const char *name, int64_t val,
     }
   }
 
-  /* Unlikes counters and timers, gauges are NOT subject to sampling frequency;
+  /* Unlike counters and timers, gauges are NOT subject to sampling frequency;
    * the statsd protocol does not allow for this, and rightly so.
    */
   return write_metric(statsd, "g", name, val_prefix, val, 1.0);
