@@ -5,9 +5,11 @@ autom4te.cache
 mod_statsd.h
 .libs
 .*.swp
+*.a
 *.la
 *.lo
 *.log
 *Tests*.log
 *.o
 *~
+t/api-tests

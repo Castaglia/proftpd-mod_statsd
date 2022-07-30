@@ -1,6 +1,6 @@
 /*
  * ProFTPD - mod_statsd testsuite
- * Copyright (c) 2017 TJ Saunders <tj@castaglia.org>
+ * Copyright (c) 2017-2022 TJ Saunders <tj@castaglia.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ static const pr_netaddr_t *statsd_addr(unsigned int port) {
   const pr_netaddr_t *addr;
 
   addr = pr_netaddr_get_addr(p, "127.0.0.1", NULL);
-  fail_unless(addr != NULL, "Failed to resolve 127.0.0.1: %s", strerror(errno));
+  ck_assert_msg(addr != NULL, "Failed to resolve 127.0.0.1: %s", strerror(errno));
   pr_netaddr_set_port2((pr_netaddr_t *) addr, port);
 
   return addr;
@@ -68,34 +68,34 @@ START_TEST (metric_counter_test) {
 
   mark_point();
   res = statsd_metric_counter(NULL, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null statsd");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null statsd");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
   statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
-  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+  ck_assert_msg(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   mark_point();
   res = statsd_metric_counter(statsd, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null name");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null name");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
   res = statsd_metric_counter(statsd, "foo", 0, 0);
-  fail_unless(res == 0, "Failed to set counter: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set counter: %s", strerror(errno));
 
   mark_point();
   res = statsd_metric_counter(statsd, "foo", 0, STATSD_METRIC_FL_IGNORE_SAMPLING);
-  fail_unless(res == 0, "Failed to set counter: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set counter: %s", strerror(errno));
 
   mark_point();
   res = statsd_statsd_flush(statsd);
-  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to flush metrics: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 }
@@ -109,43 +109,43 @@ START_TEST (metric_timer_test) {
 
   mark_point();
   res = statsd_metric_timer(NULL, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null statsd");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null statsd");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
   statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
-  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+  ck_assert_msg(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   mark_point();
   res = statsd_metric_timer(statsd, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null name");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null name");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   ms = 1;
 
   mark_point();
   res = statsd_metric_timer(statsd, "foo", ms, 0);
-  fail_unless(res == 0, "Failed to set timer: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set timer: %s", strerror(errno));
 
   /* Deliberately use a very large timer, to test the truncation. */
   ms = 315360000000UL;
 
   mark_point();
   res = statsd_metric_timer(statsd, "bar", ms, 0);
-  fail_unless(res == 0, "Failed to set timer: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set timer: %s", strerror(errno));
 
   mark_point();
   res = statsd_metric_timer(statsd, "bar", ms, STATSD_METRIC_FL_IGNORE_SAMPLING);
-  fail_unless(res == 0, "Failed to set timer: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set timer: %s", strerror(errno));
 
   mark_point();
   res = statsd_statsd_flush(statsd);
-  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to flush metrics: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 }
@@ -158,38 +158,38 @@ START_TEST (metric_gauge_test) {
 
   mark_point();
   res = statsd_metric_gauge(NULL, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null statsd");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null statsd");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   addr = statsd_addr(STATSD_DEFAULT_PORT);
 
   mark_point();
   statsd = statsd_statsd_open(p, addr, FALSE, 1.0, NULL, NULL);
-  fail_unless(statsd != NULL, "Failed to open statsd connection: %s",
+  ck_assert_msg(statsd != NULL, "Failed to open statsd connection: %s",
     strerror(errno));
 
   mark_point();
   res = statsd_metric_gauge(statsd, NULL, 0, 0);
-  fail_unless(res < 0, "Failed to handle null name");
-  fail_unless(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
+  ck_assert_msg(res < 0, "Failed to handle null name");
+  ck_assert_msg(errno == EINVAL, "Expected EINVAL (%d), got %s (%d)", EINVAL,
     strerror(errno), errno);
 
   mark_point();
   res = statsd_metric_gauge(statsd, "foo", 1, 0);
-  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set gauge: %s", strerror(errno));
 
   mark_point();
   res = statsd_metric_gauge(statsd, "foo", 1, STATSD_METRIC_FL_GAUGE_ADJUST);
-  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set gauge: %s", strerror(errno));
 
   mark_point();
   res = statsd_metric_gauge(statsd, "foo", -1, STATSD_METRIC_FL_GAUGE_ADJUST);
-  fail_unless(res == 0, "Failed to set gauge: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to set gauge: %s", strerror(errno));
 
   mark_point();
   res = statsd_statsd_flush(statsd);
-  fail_unless(res == 0, "Failed to flush metrics: %s", strerror(errno));
+  ck_assert_msg(res == 0, "Failed to flush metrics: %s", strerror(errno));
 
   (void) statsd_statsd_close(statsd);
 }
