@@ -4,6 +4,7 @@ proftpd-mod_statsd
 Status
 ------
 [![GitHub Actions CI Status](https://github.com/Castaglia/proftpd-mod_statsd/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Castaglia/proftpd-mod_statsd/actions/workflows/ci.yml)
+[![CodeQL Analysis](https://github.com/Castaglia/proftpd-mod_statsd/actions/workflows/codeql.yml/badge.svg)](https://github.com/Castaglia/proftpd-mod_statsd/actions/workflows/codeql.yml)
 [![Coverage Status](https://coveralls.io/repos/github/Castaglia/proftpd-mod_statsd/badge.svg?branch=master)](https://coveralls.io/github/Castaglia/proftpd-mod_statsd?branch=master)
 [![License](https://img.shields.io/badge/license-GPL-brightgreen.svg)](https://img.shields.io/badge/license-GPL-brightgreen.svg)
 
