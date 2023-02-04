@@ -24,20 +24,20 @@ jobs:
           - gcc
         container:
           - almalinux:8
-          - alpine:3.14
+          - alpine:3.17
           - ubuntu:18.04
 
     container: ${{ matrix.container }}
 
     steps:
       - name: Checkout ProFTPD
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: proftpd/proftpd
           path: proftpd
 
       - name: Checkout module source code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           path: proftpd/contrib/mod_statsd
 
@@ -55,11 +55,11 @@ jobs:
           fi
 
       - name: Install Alpine packages
-        if: ${{ matrix.container == 'alpine:3.14' }}
+        if: ${{ matrix.container == 'alpine:3.17' }}
         run: |
           apk update
           # for builds
-          apk add bash build-base clang compiler-rt-static gcc make zlib-dev
+          apk add bash build-base clang compiler-rt gcc make zlib-dev
           # for unit tests
           apk add check check-dev subunit subunit-dev
 
@@ -116,7 +116,7 @@ jobs:
         env:
           CC: ${{ matrix.compiler }}
         # Note: Skip the unit tests on Alpine
-        if: ${{ matrix.container != 'alpine:3.14' }}
+        if: ${{ matrix.container != 'alpine:3.17' }}
         run: |
           cd proftpd/contrib/mod_statsd
           make TEST_VERBOSE=1 check
