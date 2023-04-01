@@ -178,8 +178,8 @@ static int should_sample(float sampling) {
   p = ((float) rand() / RAND_MAX);
 #endif /* HAVE_RANDOM */
 
-  pr_trace_msg(trace_channel, 19, "sampling: p = %f, sample percentage = %f", p, 
-    sampling);
+  pr_trace_msg(trace_channel, 19, "sampling: p = %f, sample percentage = %f",
+    p, sampling);
   if (p > sampling) {
     return FALSE;
   }
