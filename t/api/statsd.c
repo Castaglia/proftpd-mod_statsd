@@ -51,7 +51,7 @@ static void tear_down(void) {
   if (p) {
     destroy_pool(p);
     p = NULL;
-  } 
+  }
 }
 
 static const pr_netaddr_t *statsd_addr(unsigned int port) {
