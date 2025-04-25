@@ -24,25 +24,25 @@ jobs:
           - gcc
         container:
           - almalinux:8
-          - alpine:3.17
-          - ubuntu:18.04
+          - alpine:3.18
+          - ubuntu:22.04
 
     container: ${{ matrix.container }}
 
     steps:
       - name: Checkout ProFTPD
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: proftpd/proftpd
           path: proftpd
 
       - name: Checkout module source code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: proftpd/contrib/mod_statsd
 
       - name: Whitespace check
-        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.container == 'ubuntu:22.04' }}
         run: |
           apt-get update -qq
           apt-get install -y git
@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Install Alpine packages
-        if: ${{ matrix.container == 'alpine:3.17' }}
+        if: ${{ matrix.container == 'alpine:3.18' }}
         run: |
           apk update
           # for builds
@@ -81,7 +81,7 @@ jobs:
           gcc --version
 
       - name: Install Ubuntu packages
-        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.container == 'ubuntu:22.04' }}
         run: |
           apt-get update -qq
           # for builds
@@ -100,7 +100,7 @@ jobs:
           gcc --version
 
       - name: Prepare code coverage
-        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.container == 'ubuntu:22.04' }}
         run: |
           lcov --directory proftpd --zerocounters
 
@@ -116,7 +116,7 @@ jobs:
         env:
           CC: ${{ matrix.compiler }}
         # Note: Skip the unit tests on Alpine
-        if: ${{ matrix.container != 'alpine:3.17' }}
+        if: ${{ matrix.container != 'alpine:3.18' }}
         run: |
           cd proftpd/contrib/mod_statsd
           make TEST_VERBOSE=1 check
@@ -124,7 +124,7 @@ jobs:
       - name: Upload code coverage
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: ${{ matrix.compiler == 'gcc' && matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.compiler == 'gcc' && matrix.container == 'ubuntu:22.04' }}
         run: |
           cd proftpd/contrib/mod_statsd
           lcov --ignore-errors gcov,source --directory . --capture --output-file all.info
@@ -167,7 +167,7 @@ jobs:
           CC: ${{ matrix.compiler }}
           CFLAGS: -fsanitize=address,undefined
           LDFLAGS: -fsanitize=address,undefined
-        if: ${{ matrix.compiler == 'clang' && matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.compiler == 'clang' && matrix.container == 'ubuntu:22.04' }}
         run: |
           cd proftpd
           make clean
@@ -178,7 +178,7 @@ jobs:
           make TEST_VERBOSE=1 check
 
       - name: Check HTML docs
-        if: ${{ matrix.container == 'ubuntu:18.04' }}
+        if: ${{ matrix.container == 'ubuntu:22.04' }}
         run: |
           cd proftpd/contrib/mod_statsd
           for f in $(/bin/ls *.html); do echo "Processing $f"; tidy -errors -omit -q $f; done || exit 0
