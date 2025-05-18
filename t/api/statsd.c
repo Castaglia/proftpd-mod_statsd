@@ -1,6 +1,6 @@
 /*
  * ProFTPD - mod_statsd testsuite
- * Copyright (c) 2017-2022 TJ Saunders <tj@castaglia.org>
+ * Copyright (c) 2017-2025 TJ Saunders <tj@castaglia.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@ START_TEST (statsd_open_test) {
   mark_point();
   statsd = statsd_statsd_open(p, addr, TRUE, 1.0, NULL, NULL);
 
-  /* If statsd IS running, but is not configued for TCP, the "Connection
+  /* If statsd IS running, but is not configured for TCP, the "Connection
    * refused" error is expected.
    */
   if (statsd != NULL &&
