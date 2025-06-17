@@ -1,6 +1,6 @@
 /*
  * ProFTPD: mod_statsd Statsd API
- * Copyright (c) 2017 TJ Saunders
+ * Copyright (c) 2017-2025 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -90,6 +90,9 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
 
   if (use_tcp == TRUE) {
     int res;
+#if defined(TCP_NODELAY)
+    int nodelay = 1;
+#endif /* TCP_NODELAY */
 
     res = connect(fd, pr_netaddr_get_sockaddr(addr),
       pr_netaddr_get_sockaddr_len(addr));
@@ -104,6 +107,17 @@ struct statsd *statsd_statsd_open(pool *p, const pr_netaddr_t *addr,
       errno = xerrno;
       return NULL;
     }
+
+#if defined(TCP_NODELAY)
+    /* Disable Nagle by default. */
+    res = setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const void *) &nodelay,
+      sizeof(nodelay));
+    if (res < 0) {
+      pr_trace_msg(trace_channel, 1,
+        "error setting TCP_NODELAY=%d on TCP socket: %s", nodelay,
+        strerror(errno));
+    }
+#endif /* TCP_NODELAY */
   }
 
   sub_pool = make_sub_pool(p);
