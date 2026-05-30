@@ -68,7 +68,7 @@ sub list_tests {
   # statsd instance and our config files.
 
   $required = [qw(
-    PROFTPD_TEST_LIB
+    PROFTPD_TEST_DIR
     STATSD_MGMT_PORT
   )];
 
@@ -90,7 +90,7 @@ sub statsd_tls_handshakes {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
+  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/server-cert.pem");
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -102,6 +102,7 @@ sub statsd_tls_handshakes {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     IfModules => {
       'mod_delay.c' => {
@@ -220,7 +221,7 @@ sub statsd_tls_protocol_and_cipher {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
-  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_LIB}/t/etc/modules/mod_tls/server-cert.pem");
+  my $cert_file = File::Spec->rel2abs("$ENV{PROFTPD_TEST_DIR}/t/etc/modules/mod_tls/server-cert.pem");
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -232,6 +233,7 @@ sub statsd_tls_protocol_and_cipher {
 
     AuthUserFile => $setup->{auth_user_file},
     AuthGroupFile => $setup->{auth_group_file},
+    AuthOrder => 'mod_auth_file.c',
 
     IfModules => {
       'mod_delay.c' => {
@@ -249,7 +251,6 @@ sub statsd_tls_protocol_and_cipher {
         TLSRequired => 'on',
         TLSRSACertificateFile => $cert_file,
         TLSOptions => 'EnableDiags StdEnvVars',
-        TLSProtocol => 'SSLv3 TLSv1 TLSv1.1',
       }
     },
   };
