@@ -2,6 +2,7 @@ package ProFTPD::Tests::Modules::mod_statsd::mgmt;
 
 use strict;
 
+use Carp;
 use IO::Handle;
 use Socket;
 
@@ -21,9 +22,11 @@ our %EXPORT_TAGS = (
 );
 
 sub statsd_mgmt {
+  my $host = $ENV{STATSD_HOST};
   my $port = $ENV{STATSD_MGMT_PORT};
+
   my $opts = {
-    PeerHost => '127.0.0.1',
+    PeerHost => $host,
     PeerPort => $port,
     Proto => 'tcp',
     Type => SOCK_STREAM,

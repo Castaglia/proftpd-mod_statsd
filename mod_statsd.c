@@ -1,6 +1,6 @@
 /*
  * ProFTPD - mod_statsd
- * Copyright (c) 2017 TJ Saunders
+ * Copyright (c) 2017-2026 TJ Saunders
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,8 +13,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Suite 500, Boston, MA 02110-1335, USA.
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  *
  * As a special exemption, TJ Saunders and other respective copyright holders
  * give permission to link this program with OpenSSL, and distribute the
@@ -38,7 +37,7 @@ module statsd_module;
 
 static int statsd_engine = STATSD_DEFAULT_ENGINE;
 static const char *statsd_exclude_filter = NULL;
-#ifdef PR_USE_REGEX
+#if defined(PR_USE_REGEX)
 static pr_regex_t *statsd_exclude_pre = NULL;
 #endif /* PR_USE_REGEX */
 static float statsd_sampling = STATSD_DEFAULT_SAMPLING;
@@ -155,7 +154,7 @@ static char *get_tls_metric(pool *p, const char *name) {
 static int should_exclude(cmd_rec *cmd) {
   int exclude = FALSE;
 
-#ifdef PR_USE_REGEX
+#if defined(PR_USE_REGEX)
   if (pr_regexp_exec(statsd_exclude_pre, (char *) cmd->argv[0], 0, NULL, 0, 0,
       0) == 0) {
     exclude = TRUE;
@@ -172,7 +171,7 @@ static int should_sample(float sampling) {
     return TRUE;
   }
 
-#ifdef HAVE_RANDOM
+#if defined(HAVE_RANDOM)
   p = ((float) random() / RAND_MAX);
 #else
   p = ((float) rand() / RAND_MAX);
@@ -212,7 +211,7 @@ MODRET set_statsdengine(cmd_rec *cmd) {
 
 /* usage: StatsdExcludeFilter regex|"none" */
 MODRET set_statsdexcludefilter(cmd_rec *cmd) {
-#ifdef PR_USE_REGEX
+#if defined(PR_USE_REGEX)
   pr_regex_t *pre = NULL;
   config_rec *c;
   char *pattern;
@@ -248,7 +247,7 @@ MODRET set_statsdexcludefilter(cmd_rec *cmd) {
 #else
   CONF_ERROR(cmd, "The StatsdExcludeFilter directive cannot be used on this "
     "system, as you do not have POSIX compliant regex support");
-#endif
+#endif /* PR_USE_REGEX */
 }
 
 /* usage: StatsdSampling percentage */
@@ -607,7 +606,7 @@ static void statsd_sess_reinit_ev(const void *event_data, void *user_data) {
   /* Reset internal state. */
   statsd_engine = STATSD_DEFAULT_ENGINE;
   statsd_exclude_filter = NULL;
-#ifdef PR_USE_REGEX
+#if defined(PR_USE_REGEX)
   statsd_exclude_pre = NULL;
 #endif /* PR_USE_REGEX */
   statsd_sampling = STATSD_DEFAULT_SAMPLING;
@@ -840,7 +839,7 @@ static int statsd_sess_init(void) {
     return 0;
   }
 
-#ifdef HAVE_SRANDOM
+#if defined(HAVE_SRANDOM)
   srandom((unsigned int) (time(NULL) ^ getpid()));
 #else
   srand((unsigned int) (time(NULL) ^ getpid()));
@@ -931,12 +930,15 @@ static conftable statsd_conftab[] = {
   { "StatsdExcludeFilter",	set_statsdexcludefilter,	NULL },
   { "StatsdSampling",		set_statsdsampling,		NULL },
   { "StatsdServer",		set_statsdserver,		NULL },
+
   { NULL }
 };
 
 static cmdtable statsd_cmdtab[] = {
   { LOG_CMD,		C_ANY,	G_NONE,	statsd_log_any,		FALSE,	FALSE },
   { LOG_CMD_ERR,	C_ANY,	G_NONE,	statsd_log_any_err,	FALSE,	FALSE },
+
+  { 0, NULL }
 };
 
 module statsd_module = {
