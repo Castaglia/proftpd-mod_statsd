@@ -97,6 +97,7 @@ sub list_tests {
     STATSD_MGMT_PORT
   )];
 
+  $ENV{STATSD_HOST} = '127.0.0.1' unless defined($ENV{STATSD_HOST});
   $ENV{STATSD_PORT} = 8125 unless defined($ENV{STATSD_PORT});
   $ENV{STATSD_MGMT_PORT} = 8126 unless defined($ENV{STATSD_MGMT_PORT});
 
@@ -115,6 +116,7 @@ sub statsd_engine {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -135,7 +137,7 @@ sub statsd_engine {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "127.0.0.1:$statsd_port",
+        StatsdServer => "$statsd_host:$statsd_port",
       },
     },
   };
@@ -226,7 +228,7 @@ sub statsd_engine {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_server_udp {
@@ -234,6 +236,7 @@ sub statsd_server_udp {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -254,7 +257,7 @@ sub statsd_server_udp {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "udp://127.0.0.1:$statsd_port",
+        StatsdServer => "udp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -345,20 +348,21 @@ sub statsd_server_udp {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_server_tcp {
   my $self = shift;
   my $tmpdir = $self->{tmpdir};
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
 
   # Note: this test requires that statsd be listening for TCP, not UDP.
   # Make a probe TCP connection to statsd; if that fails, skip this test.
 
   my $opts = {
-    PeerHost => '127.0.0.1',
+    PeerHost => $statsd_host,
     PeerPort => $statsd_port,
     Proto => 'tcp',
     Type => SOCK_STREAM,
@@ -392,7 +396,7 @@ sub statsd_server_tcp {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "tcp://127.0.0.1:$statsd_port",
+        StatsdServer => "tcp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -483,7 +487,7 @@ sub statsd_server_tcp {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_sampling {
@@ -491,6 +495,7 @@ sub statsd_sampling {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
   my $sampling = 25.0;
 
@@ -513,7 +518,7 @@ sub statsd_sampling {
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdSampling => $sampling,
-        StatsdServer => "udp://127.0.0.1:$statsd_port",
+        StatsdServer => "udp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -612,7 +617,7 @@ sub statsd_sampling {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_namespacing {
@@ -620,6 +625,7 @@ sub statsd_namespacing {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
   my $prefix = "proftpd.prod";
   my $suffix = "tests";
@@ -642,7 +648,7 @@ sub statsd_namespacing {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "udp://127.0.0.1:$statsd_port $prefix $suffix",
+        StatsdServer => "udp://$statsd_host:$statsd_port $prefix $suffix",
       },
     },
   };
@@ -734,7 +740,7 @@ sub statsd_namespacing {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_timeout_login {
@@ -742,6 +748,7 @@ sub statsd_timeout_login {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
   my $timeout_login = 3;
 
@@ -765,7 +772,7 @@ sub statsd_timeout_login {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "udp://127.0.0.1:$statsd_port",
+        StatsdServer => "udp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -865,7 +872,7 @@ sub statsd_timeout_login {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_exclude_filter {
@@ -873,6 +880,7 @@ sub statsd_exclude_filter {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -894,7 +902,7 @@ sub statsd_exclude_filter {
       'mod_statsd.c' => {
         StatsdEngine => 'on',
         StatsdExcludeFilter => '^SYST$',
-        StatsdServer => "udp://127.0.0.1:$statsd_port",
+        StatsdServer => "udp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -986,7 +994,7 @@ sub statsd_exclude_filter {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 sub statsd_log_levels {
@@ -994,6 +1002,7 @@ sub statsd_log_levels {
   my $tmpdir = $self->{tmpdir};
   my $setup = test_setup($tmpdir, 'statsd');
 
+  my $statsd_host = $ENV{STATSD_HOST};
   my $statsd_port = $ENV{STATSD_PORT};
 
   my $config = {
@@ -1014,7 +1023,7 @@ sub statsd_log_levels {
 
       'mod_statsd.c' => {
         StatsdEngine => 'on',
-        StatsdServer => "udp://127.0.0.1:$statsd_port",
+        StatsdServer => "udp://$statsd_host:$statsd_port",
       },
     },
   };
@@ -1082,7 +1091,7 @@ sub statsd_log_levels {
     $ex = $@;
   }
 
-  test_cleanup($setup->{log_file}, $ex);
+  test_cleanup($setup, $ex);
 }
 
 1;
